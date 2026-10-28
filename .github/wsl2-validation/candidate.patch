@@ -1,0 +1,2050 @@
+diff --git a/Library/Homebrew/bundle/extensions/cargo.rb b/Library/Homebrew/bundle/extensions/cargo.rb
+index 5ae02bf221..e06a734525 100644
+--- a/Library/Homebrew/bundle/extensions/cargo.rb
++++ b/Library/Homebrew/bundle/extensions/cargo.rb
+@@ -104,7 +104,7 @@ module Homebrew
+           @packages = if (cargo = package_manager_executable) &&
+                          (!cargo.to_s.start_with?("/") || cargo.exist?)
+             with_env(cargo_env(cargo)) do
+-              parse_package_list(Utils.popen_read_text(cargo, "install", "--list", err: :err))
++              parse_package_list(command_output(cargo, args: ["install", "--list"], print_stderr: true))
+             end
+           end
+           return [] if @packages.nil?
+@@ -270,7 +270,7 @@ module Homebrew
+ 
+         sig { params(output: String).returns(T::Array[Crate]) }
+         def parse_package_list(output)
+-          output.lines.filter_map do |line|
++          output.each_line.filter_map do |line|
+             next if line.match?(/^\s/)
+ 
+             match = line.match(PACKAGE_LIST_REGEX)
+diff --git a/Library/Homebrew/bundle/extensions/extension.rb b/Library/Homebrew/bundle/extensions/extension.rb
+index 2cd1d75b20..5caa43ad65 100644
+--- a/Library/Homebrew/bundle/extensions/extension.rb
++++ b/Library/Homebrew/bundle/extensions/extension.rb
+@@ -19,6 +19,18 @@ module Homebrew
+         Homebrew::Bundle.register_extension(T.cast(subclass, T.class_of(Homebrew::Bundle::Extension)))
+       end
+ 
++      sig {
++        params(
++          executable:   T.any(String, Pathname),
++          args:         T::Array[String],
++          print_stderr: T::Boolean,
++        ).returns(String)
++      }
++      def self.command_output(executable, args:, print_stderr: false)
++        SystemCommand.run!(executable, args:, print_stderr:).stdout
++      end
++      private_class_method :command_output
++
+       sig { abstract.returns(String) }
+       def self.banner_name; end
+ 
+diff --git a/Library/Homebrew/bundle/extensions/flatpak.rb b/Library/Homebrew/bundle/extensions/flatpak.rb
+index c24315abaf..92957ebcd8 100644
+--- a/Library/Homebrew/bundle/extensions/flatpak.rb
++++ b/Library/Homebrew/bundle/extensions/flatpak.rb
+@@ -97,8 +97,7 @@ module Homebrew
+           return remote_urls if remote_urls
+ 
+           @remote_urls = if (flatpak = package_manager_executable)
+-            output = Utils.popen_read_text(flatpak, "remote-list", "--system", "--columns=name,url",
+-                                           err: File::NULL).chomp
++            output = command_output(flatpak, args: ["remote-list", "--system", "--columns=name,url"]).chomp
+             urls = {}
+             output.split("\n").each do |line|
+               parts = line.strip.split("\t")
+@@ -124,8 +123,7 @@ module Homebrew
+             # List applications with their origin remote
+             # Using --app to filter applications only
+             # Using --columns=application,origin to get app IDs and their remotes
+-            output = Utils.popen_read_text(flatpak, "list", "--app", "--columns=application,origin",
+-                                           err: File::NULL).chomp
++            output = command_output(flatpak, args: ["list", "--app", "--columns=application,origin"]).chomp
+ 
+             packages = output.split("\n").filter_map do |line|
+               parts = line.strip.split("\t")
+@@ -295,8 +293,7 @@ module Homebrew
+           return false unless Bundle.system(flatpak, "install", "-y", "--system", url, verbose:)
+ 
+           # Get the actual remote name used by Flatpak
+-          output = Utils.popen_read_text(flatpak, "list", "--app", "--columns=application,origin",
+-                                         err: File::NULL).chomp
++          output = command_output(flatpak, args: ["list", "--app", "--columns=application,origin"]).chomp
+           installed = output.split("\n").find { |line| line.start_with?(name) }
+           actual_remote = installed ? installed.split("\t")[1] : "#{name}-origin"
+           actual_remote ||= "#{name}-origin"
+@@ -307,6 +304,11 @@ module Homebrew
+           @installed_packages = packages_with_remotes.dup
+           @packages = packages_with_remotes.map { |pkg| pkg[:name] }
+           true
++        rescue ErrorDuringExecution
++          reset!
++          opoo "Flatpak installation succeeded, but inventory refresh failed. " \
++               "Run Bundle again to rediscover installed applications."
++          raise
+         end
+ 
+         # Generate a single-app remote name (Tier 2)
+@@ -356,8 +358,7 @@ module Homebrew
+         # Get URL for an existing remote, or nil if not found
+         sig { params(flatpak: String, remote_name: String).returns(T.nilable(String)) }
+         def get_remote_url(flatpak, remote_name)
+-          output = Utils.popen_read_text(flatpak, "remote-list", "--system", "--columns=name,url",
+-                                         err: File::NULL).chomp
++          output = command_output(flatpak, args: ["remote-list", "--system", "--columns=name,url"]).chomp
+           output.split("\n").each do |line|
+             parts = line.split("\t")
+             return parts[1] if parts[0] == remote_name
+diff --git a/Library/Homebrew/bundle/extensions/go.rb b/Library/Homebrew/bundle/extensions/go.rb
+index 18debdfdd5..84cf1026b5 100644
+--- a/Library/Homebrew/bundle/extensions/go.rb
++++ b/Library/Homebrew/bundle/extensions/go.rb
+@@ -6,6 +6,9 @@ require "bundle/extensions/extension"
+ module Homebrew
+   module Bundle
+     class Go < Extension
++      NON_GO_EXECUTABLE_ERRORS = ["not a Go executable", "unrecognized file format"].freeze
++      private_constant :NON_GO_EXECUTABLE_ERRORS
++
+       class << self
+         sig { override.returns(Symbol) }
+         def type = :go
+@@ -33,44 +36,62 @@ module Homebrew
+           return packages if packages
+ 
+           @packages = if (go = package_manager_executable)
+-            ENV["GOBIN"] = ENV.fetch("HOMEBREW_GOBIN", nil)
+-            ENV["GOPATH"] = ENV.fetch("HOMEBREW_GOPATH", nil)
+-            gobin = Utils.popen_read(go, "env", "GOBIN", err: :err).chomp
+-            gopath = Utils.popen_read(go, "env", "GOPATH", err: :err).chomp
+-            bin_dir = gobin.empty? ? "#{gopath}/bin" : gobin
+-            if File.directory?(bin_dir)
+-              binaries = Dir.glob("#{bin_dir}/*").select do |file|
+-                File.executable?(file) && !File.directory?(file) && !File.symlink?(file)
+-              end
++            # Go uses `command-line-arguments` for binaries built from source files rather than a package.
++            # These binaries have no package path that Bundle can reinstall.
++            # https://github.com/golang/go/issues/36043
++            discovered_binaries(go).values.reject { |path| path == "command-line-arguments" }.uniq
++          else
++            []
++          end
++        end
++
++        sig { params(go: Pathname).returns(T::Hash[String, String]) }
++        def discovered_binaries(go)
++          ENV["GOBIN"] = ENV.fetch("HOMEBREW_GOBIN", nil)
++          ENV["GOPATH"] = ENV.fetch("HOMEBREW_GOPATH", nil)
+ 
+-              binaries.filter_map do |binary|
+-                output = Utils.popen_read(go, "version", "-m", binary, err: File::NULL)
+-                next if output.empty?
++          gobin = command_output(go, args: ["env", "GOBIN"], print_stderr: true).chomp
++          gopath = command_output(go, args: ["env", "GOPATH"], print_stderr: true).chomp
++          bin_dir = gobin.empty? ? "#{gopath}/bin" : gobin
+ 
+-                lines = output.split("\n")
+-                path_line = lines.find { |line| line.strip.start_with?("path\t") }
+-                next unless path_line
++          begin
++            entries = Dir.children(bin_dir).sort
++          rescue Errno::ENOENT
++            return {}
++          end
+ 
+-                # Parse the output to find the path line
+-                # Format: "\tpath\tgithub.com/user/repo"
+-                parts = path_line.split("\t")
+-                # Extract the package path (second field after splitting by tab)
+-                # The line format is: "\tpath\tgithub.com/user/repo"
+-                path = parts[2]&.strip
++          entries.each_with_object({}) do |entry, binaries|
++            next if entry.start_with?(".")
+ 
+-                # `command-line-arguments` is a dummy package name for binaries built
+-                # from a list of source files instead of a specific package name.
+-                # https://github.com/golang/go/issues/36043
+-                next if path == "command-line-arguments"
++            binary = File.join(bin_dir, entry)
++            next if !File.executable?(binary) || File.directory?(binary) || File.symlink?(binary)
+ 
+-                path
+-              end.uniq
+-            end
++            path = binary_package_path(go, binary)
++            binaries[binary] = path if path
++          end
++        end
++        private :discovered_binaries
++
++        sig { params(go: Pathname, binary: String).returns(T.nilable(String)) }
++        def binary_package_path(go, binary)
++          result = SystemCommand.run(go, args: ["version", "-m", binary], print_stderr: false)
++          unless result.success?
++            recognised_non_go_result =
++              result.exit_status == 1 && result.stdout.empty? && NON_GO_EXECUTABLE_ERRORS.any? do |diagnostic|
++                result.stderr.chomp == "#{binary}: could not read Go build info from #{binary}: #{diagnostic}"
++              end
++            return if recognised_non_go_result
++
++            result.assert_success!
+           end
+-          return [] if @packages.nil?
+ 
+-          @packages
++          path_line = result.stdout.each_line.find { |line| line.strip.start_with?("path\t") }
++          return unless path_line
++
++          # The leading tab in "\tpath\texample.com/tool" puts the package path at index 2.
++          path_line.split("\t")[2]&.strip
+         end
++        private :binary_package_path
+ 
+         sig {
+           override.params(
+@@ -103,22 +124,9 @@ module Homebrew
+             return
+           end
+ 
+-          gobin = Utils.popen_read(go, "env", "GOBIN", err: :err).chomp
+-          gopath = Utils.popen_read(go, "env", "GOPATH", err: :err).chomp
+-          bin_dir = gobin.empty? ? "#{gopath}/bin" : gobin
+-          return unless File.directory?(bin_dir)
+-
+           removed = 0
+-          Dir.glob("#{bin_dir}/*").each do |binary|
+-            next if !File.executable?(binary) || File.directory?(binary) || File.symlink?(binary)
+-
+-            output = Utils.popen_read(go, "version", "-m", binary, err: File::NULL)
+-            next if output.empty?
+-
+-            path_line = output.split("\n").find { |line| line.strip.start_with?("path\t") }
+-            next unless path_line
+-
+-            module_path = path_line.split("\t")[2]&.strip
++          # Finish discovery before deleting anything so an inspection failure cannot leave partial cleanup.
++          discovered_binaries(go).each do |binary, module_path|
+             next unless items.include?(module_path)
+ 
+             begin
+diff --git a/Library/Homebrew/bundle/extensions/krew.rb b/Library/Homebrew/bundle/extensions/krew.rb
+index fc143621fa..5978b7b18d 100644
+--- a/Library/Homebrew/bundle/extensions/krew.rb
++++ b/Library/Homebrew/bundle/extensions/krew.rb
+@@ -45,7 +45,7 @@ module Homebrew
+ 
+           @packages = if package_manager_installed?
+             with_package_manager_env do |krew|
+-              parse_plugin_list(Utils.popen_read_text(krew, "list", err: File::NULL))
++              parse_plugin_list(command_output(krew, args: ["list"]))
+             end
+           else
+             []
+@@ -77,7 +77,7 @@ module Homebrew
+ 
+         sig { params(output: String).returns(T::Array[String]) }
+         def parse_plugin_list(output)
+-          output.lines.filter_map do |line|
++          output.each_line.filter_map do |line|
+             line = line.strip
+             next if line.empty?
+ 
+diff --git a/Library/Homebrew/bundle/extensions/mac_app_store.rb b/Library/Homebrew/bundle/extensions/mac_app_store.rb
+index 7113f1b41d..5d01e50c14 100644
+--- a/Library/Homebrew/bundle/extensions/mac_app_store.rb
++++ b/Library/Homebrew/bundle/extensions/mac_app_store.rb
+@@ -80,7 +80,7 @@ module Homebrew
+           return apps if apps
+ 
+           @apps = if (mas = package_manager_executable)
+-            Utils.popen_read_text(mas, "list", err: File::NULL).split("\n").filter_map do |app|
++            command_output(mas, args: ["list"]).split("\n").filter_map do |app|
+               app_details = app.match(/\A\s*(?<id>\d+)\s+(?<name>.*?)\s+\(?(?<version>[\d.]*)\)?\Z/)
+               next if app_details.nil?
+ 
+@@ -183,7 +183,7 @@ module Homebrew
+           return outdated_app_ids if outdated_app_ids
+ 
+           @outdated_app_ids = if (mas = package_manager_executable)
+-            Utils.popen_read_text(mas, "outdated", err: File::NULL).split("\n").map do |app|
++            command_output(mas, args: ["outdated"]).split("\n").map do |app|
+               app.split(" ", 2).first.to_s
+             end
+           end
+diff --git a/Library/Homebrew/bundle/extensions/npm.rb b/Library/Homebrew/bundle/extensions/npm.rb
+index 8009d1816f..b8e11e9a83 100644
+--- a/Library/Homebrew/bundle/extensions/npm.rb
++++ b/Library/Homebrew/bundle/extensions/npm.rb
+@@ -101,7 +101,7 @@ module Homebrew
+           @packages = if (npm = package_manager_executable) &&
+                          (!npm.to_s.start_with?("/") || npm.exist?)
+             with_env(package_manager_env(npm)) do
+-              parse_package_list(Utils.popen_read_text(npm, "list", "-g", "--depth=0", "--json", err: File::NULL))
++              listed_package_names(npm)
+             end
+           end
+           return [] if @packages.nil?
+@@ -139,11 +139,8 @@ module Homebrew
+           return [] unless (npm = package_manager_executable)
+ 
+           @outdated_packages = with_env(package_manager_env(npm)) do
+-            JSON.parse(Utils.popen_read_text(npm, "outdated", "-g", "--depth=0", "--json", err: File::NULL))
+-                .keys.reject { |name| name == "npm" }
++            outdated_package_names(npm)
+           end
+-        rescue JSON::ParserError
+-          @outdated_packages = []
+         end
+ 
+         sig { override.params(name: String, executable: Pathname).returns(T::Boolean) }
+@@ -151,17 +148,75 @@ module Homebrew
+           Bundle.system(executable.to_s, "uninstall", "-g", name, verbose: false)
+         end
+ 
+-        sig { params(output: String).returns(T::Array[String]) }
+-        def parse_package_list(output)
+-          return [] if output.blank?
++        sig { params(npm: Pathname, command: String).returns([SystemCommand::Result, T::Hash[String, Object]]) }
++        def inventory_json(npm, command)
++          result = SystemCommand.run(npm, args: [command, "-g", "--depth=0", "--json"], print_stderr: false)
++          result.assert_success! unless [0, 1].include?(result.exit_status)
+ 
+-          json = JSON.parse(output)
+-          deps = json.fetch("dependencies", {})
+-          deps.keys.reject { |name| name == "npm" }
+-        rescue JSON::ParserError
+-          []
++          begin
++            json = JSON.parse(result.stdout)
++          rescue JSON::ParserError
++            result.assert_success!
++            raise "Invalid npm #{command} inventory: expected JSON"
++          end
++
++          unless json.is_a?(Hash)
++            result.assert_success!
++            raise "Invalid npm #{command} inventory: unexpected JSON structure"
++          end
++
++          [result, json]
++        end
++        private :inventory_json
++
++        sig { params(npm: Pathname).returns(T::Array[String]) }
++        def listed_package_names(npm)
++          result, json = inventory_json(npm, "list")
++          dependencies = json.fetch("dependencies", {})
++          valid = if result.exit_status == 1
++            problems = json["problems"]
++            error = json["error"]
++            valid_problem_report = json["dependencies"].is_a?(Hash) && problems.is_a?(Array) &&
++                                   problems.present? && problems.all?(String)
++            valid_problem_report && error.is_a?(Hash) && error["code"] == "ELSPROBLEMS"
++          else
++            !json.key?("error")
++          end
++
++          if !dependencies.is_a?(Hash) || !valid
++            result.assert_success!
++            raise "Invalid npm list inventory: unexpected JSON structure"
++          end
++
++          dependencies = dependencies.reject do |_, metadata|
++            metadata.is_a?(Hash) && metadata["missing"] == true
++          end
++
++          dependencies.keys.reject { |name| name == "npm" }
++        end
++        private :listed_package_names
++
++        sig { params(npm: Pathname).returns(T::Array[String]) }
++        def outdated_package_names(npm)
++          result, json = inventory_json(npm, "outdated")
++          valid = json.each_value.all? do |value|
++            records = value.is_a?(Array) ? value : [value]
++            records.present? && records.all? do |record|
++              next false unless record.is_a?(Hash)
++
++              record["wanted"].is_a?(String) && record["latest"].is_a?(String) &&
++                (!record.key?("current") || record["current"].is_a?(String))
++            end
++          end && (result.exit_status != 1 || json.present?)
++
++          unless valid
++            result.assert_success!
++            raise "Invalid npm outdated inventory: unexpected JSON structure"
++          end
++
++          json.keys.reject { |name| name == "npm" }
+         end
+-        private :parse_package_list
++        private :outdated_package_names
+       end
+ 
+       sig { override.params(package: Object, no_upgrade: T::Boolean).returns(String) }
+diff --git a/Library/Homebrew/bundle/extensions/uv.rb b/Library/Homebrew/bundle/extensions/uv.rb
+index 1bcf595f69..24a41aa46b 100644
+--- a/Library/Homebrew/bundle/extensions/uv.rb
++++ b/Library/Homebrew/bundle/extensions/uv.rb
+@@ -75,11 +75,9 @@ module Homebrew
+           return @packages if @packages
+           return [] unless (uv = package_manager_executable)
+ 
+-          @packages = parse_tool_list(SystemCommand.run!(
+-            uv,
+-            args:         ["tool", "list", "--show-with", "--show-extras", "--show-version-specifiers"],
+-            print_stderr: false,
+-          ).stdout)
++          @packages = parse_tool_list(
++            command_output(uv, args: %w[tool list --show-with --show-extras --show-version-specifiers]),
++          )
+         end
+ 
+         sig { override.params(package: Object).returns(String) }
+diff --git a/Library/Homebrew/bundle/extensions/vscode_extension.rb b/Library/Homebrew/bundle/extensions/vscode_extension.rb
+index f4b7c286ba..b1cdc7d699 100644
+--- a/Library/Homebrew/bundle/extensions/vscode_extension.rb
++++ b/Library/Homebrew/bundle/extensions/vscode_extension.rb
+@@ -63,8 +63,8 @@ module Homebrew
+ 
+           @extensions = if (vscode = package_manager_executable)
+             ENV["WSL_DISTRO_NAME"] = ENV.fetch("HOMEBREW_WSL_DISTRO_NAME", nil)
+-            Utils.popen_read_text(vscode, "--list-extensions", err: File::NULL)
+-                 .split("\n").map(&:strip).grep(EXTENSION_ID_REGEX).map(&:downcase)
++            command_output(vscode, args: ["--list-extensions"])
++              .split("\n").map(&:strip).grep(EXTENSION_ID_REGEX, &:downcase)
+           end
+           return [] if @extensions.nil?
+ 
+diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
+index 0a0b1ffd19..0daa5e1766 100644
+--- a/Library/Homebrew/bundle/extensions/winget.rb
++++ b/Library/Homebrew/bundle/extensions/winget.rb
+@@ -44,6 +44,9 @@ module Homebrew
+         /\ANvidia\.PhysX\z/i,
+       ].freeze, T::Array[Regexp])
+ 
++      NO_APPLICATIONS_FOUND = 0x8A150014
++      private_constant :NO_APPLICATIONS_FOUND
++
+       class << self
+         sig { override.returns(Symbol) }
+         def type = :winget
+@@ -151,8 +154,11 @@ module Homebrew
+ 
+         sig { params(winget: Pathname, source: String).returns(T::Array[App]) }
+         def export_apps(winget, source:)
++          exported = exported_apps(winget, source:)
++          return [] if exported.empty?
++
+           names = listed_app_names(winget, source:)
+-          exported_apps(winget, source:).map do |app|
++          exported.map do |app|
+             App.new(id: app.id, name: names.fetch(app.id.downcase, app.name), source: app.source)
+           end
+         end
+@@ -160,9 +166,19 @@ module Homebrew
+         sig { params(winget: Pathname, source: String).returns(T::Array[App]) }
+         def exported_apps(winget, source:)
+           Tempfile.create(["brew-bundle-winget", ".json"]) do |file|
+-            next [] unless Kernel.system(winget.to_s, "export", "--source", source, "--output",
+-                                         windows_export_path(file.path), "--accept-source-agreements",
+-                                         "--disable-interactivity", out: File::NULL, err: File::NULL)
++            output_path = inventory_windows_path(file.path)
++            powershell, script = prepare_inventory_command(
++              winget, args: ["export", "--source", source, "--output", output_path,
++                             "--accept-source-agreements", "--disable-interactivity"]
++            )
++            script += <<~POWERSHELL
++              if ($nativeCode -eq #{NO_APPLICATIONS_FOUND}) {
++                [System.IO.File]::WriteAllText(#{powershell_quote(output_path)}, '{"Sources":[]}',
++                  (New-Object System.Text.UTF8Encoding($false)))
++                exit 0
++              }
++            POWERSHELL
++            run_inventory_script(powershell, script)
+ 
+             parse_export(File.read(file.path), source:)
+           end
+@@ -170,18 +186,19 @@ module Homebrew
+ 
+         sig { params(winget: Pathname, source: String).returns(T::Hash[String, String]) }
+         def listed_app_names(winget, source:)
+-          output = Utils.popen_read(winget, "list", "--source", source, "--accept-source-agreements",
+-                                    "--disable-interactivity", "--nowarn", err: :close)
++          powershell, script = prepare_inventory_command(
++            winget, args: ["list", "--source", source, "--accept-source-agreements",
++                           "--disable-interactivity", "--nowarn"]
++          )
+ 
+-          parse_list_names(output)
++          parse_list_names(run_inventory_script(powershell, script))
+         end
+ 
+         sig { params(output: String).returns(T::Hash[String, String]) }
+         def parse_list_names(output)
+           lines = output.encode("UTF-8", invalid: :replace, undef: :replace)
+                         .delete("\r")
+-                        .lines
+-                        .map(&:chomp)
++                        .lines(chomp: true)
+           header_index = lines.index { |line| line.match?(/\bName\s+Id\s+Version\b/) }
+           return {} if header_index.nil?
+ 
+@@ -212,31 +229,85 @@ module Homebrew
+           path
+         end
+ 
+-        sig { params(output: String, source: String).returns(T::Array[App]) }
+-        def parse_export(output, source:)
+-          export = JSON.parse(output)
+-          return [] unless export.is_a?(Hash)
++        sig { params(path: String).returns(String) }
++        def inventory_windows_path(path)
++          windows_absolute = %r{\A(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)}
++          return path if windows_absolute.match?(path)
++          raise "Invalid WinGet inventory path: #{path}" unless path.start_with?("/")
++
++          wslpath = which("wslpath", ORIGINAL_PATHS)
++          raise "WinGet inventory requires wslpath for Windows path conversion" if wslpath.nil?
++
++          converted = command_output(wslpath, args: ["-w", path]).chomp
++          raise "Invalid Windows path from wslpath" unless windows_absolute.match?(converted)
++
++          converted
++        end
++        private :inventory_windows_path
++
++        sig { params(winget: Pathname, args: T::Array[String]).returns([Pathname, String]) }
++        def prepare_inventory_command(winget, args:)
++          powershell = which("powershell.exe", ORIGINAL_PATHS) ||
++                       Pathname.new("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
++          raise "WinGet inventory requires Windows PowerShell 5.1 (powershell.exe)" unless powershell.executable?
+ 
+-          sources = export["Sources"]
+-          return [] unless sources.is_a?(Array)
++          script = <<~POWERSHELL
++            trap { [Console]::Error.WriteLine($_); exit 1 }
++            [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
++            $OutputEncoding = [Console]::OutputEncoding
++
++            $LASTEXITCODE = $null
++            & #{powershell_quote(inventory_windows_path(winget.to_s))} #{args.map { |arg| powershell_quote(arg) }.join(" ")}
++            $nativeStatus = $LASTEXITCODE
++
++            $nativeStatusIsInteger = $nativeStatus -is [int] -or $nativeStatus -is [uint32] -or
++                                     $nativeStatus -is [long] -or $nativeStatus -is [uint64]
++            if (-not $nativeStatusIsInteger -or
++                $nativeStatus -lt -2147483648L -or $nativeStatus -gt 4294967295L) {
++              [Console]::Error.WriteLine('WinGet did not return a valid native exit status')
++              exit 1
++            }
++
++            $nativeCode = [long]$nativeStatus -band 4294967295L
++            if ($nativeCode -eq 0) { exit 0 }
++          POWERSHELL
++
++          [powershell, script]
++        end
++        private :prepare_inventory_command
++
++        sig { params(powershell: Pathname, script: String).returns(String) }
++        def run_inventory_script(powershell, script)
++          script += <<~POWERSHELL
++            [Console]::Error.WriteLine(('WinGet failed with native exit code 0x{0:X8}' -f $nativeCode))
++            exit 1
++          POWERSHELL
+ 
+-          sources.flat_map do |source_export|
+-            next [] unless source_export.is_a?(Hash)
++          command_output(powershell, args: ["-NoProfile", "-NonInteractive", "-Command", script])
++        end
++        private :run_inventory_script
+ 
+-            packages = source_export["Packages"]
+-            next [] unless packages.is_a?(Array)
++        sig { params(output: String, source: String).returns(T::Array[App]) }
++        def parse_export(output, source:)
++          export = JSON.parse(output)
++          if !export.is_a?(Hash) || !export["Sources"].is_a?(Array)
++            raise "Invalid WinGet export: expected Sources array"
++          end
+ 
+-            packages.filter_map do |package|
+-              next unless package.is_a?(Hash)
++          export.fetch("Sources").flat_map do |source_export|
++            if !source_export.is_a?(Hash) || !source_export["Packages"].is_a?(Array)
++              raise "Invalid WinGet export: expected Packages array"
++            end
+ 
+-              id = package["PackageIdentifier"]
+-              next if !id.is_a?(String) || id.blank?
++            source_export.fetch("Packages").map do |package|
++              id = package.is_a?(Hash) ? package["PackageIdentifier"] : nil
++              raise "Invalid WinGet export: expected package identifier" if !id.is_a?(String) || id.blank?
+ 
+               App.new(id:, name: id, source:)
+             end
+           end
+         rescue JSON::ParserError
+-          []
++          raise "Invalid WinGet export: expected JSON"
+         end
+ 
+         sig { override.returns(T::Array[App]) }
+diff --git a/Library/Homebrew/test/bundle/cargo_spec.rb b/Library/Homebrew/test/bundle/cargo_spec.rb
+index 902d03f7f0..ea41cfe3b1 100644
+--- a/Library/Homebrew/test/bundle/cargo_spec.rb
++++ b/Library/Homebrew/test/bundle/cargo_spec.rb
+@@ -3,9 +3,13 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/cargo"
+ 
+ RSpec.describe Homebrew::Bundle::Cargo do
++  let(:inventory_output) { "example-tool v1.0\n    example-tool\n" }
++  let(:inventory_records) { [{ name: "example-tool", source: nil }] }
++
+   around do |example|
+     with_env({
+       "HOMEBREW_CARGO_HOME"         => "~/.cargo",
+@@ -19,6 +23,14 @@ RSpec.describe Homebrew::Bundle::Cargo do
+     end
+   end
+ 
++  it_behaves_like "a checked package inventory", stderr_forwarded: true
++  it_behaves_like "a checked inventory", :installed_packages, stderr_forwarded: true
++
++  def stub_cargo_list(output)
++    allow(described_class).to receive(:command_output)
++      .with(Pathname("cargo"), args: ["install", "--list"], print_stderr: true).and_return(output)
++  end
++
+   describe "entries" do
+     it "accepts a source option" do
+       entry = described_class.entry("tftio-kb", source: "ssh://git@example.com/tftio/kb.git")
+@@ -140,7 +152,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "returns package list" do
+-        expect(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err) do
++        expect(described_class).to receive(:command_output).with(cargo_list_args.first,
++                                                                 args: cargo_list_args.drop(1), print_stderr: true) do
+           expect(ENV.fetch("CARGO_HOME", nil)).to eq("~/.cargo")
+           expect(ENV.fetch("CARGO_INSTALL_ROOT", nil)).to eq("~/.cargo/bin")
+           expect(ENV.fetch("RUSTUP_HOME", nil)).to eq("~/.rustup")
+@@ -158,7 +171,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "parses a git source and strips the resolved revision" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git#3492d620):
+               kb
+         EOS
+@@ -170,7 +183,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "parses an https git source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           ripgrep v13.0.0 (https://github.com/BurntSushi/ripgrep#9f0e88bc):
+               rg
+         EOS
+@@ -179,7 +192,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "keeps a tag selector while stripping the resolved revision" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git?tag=v4.0.0#3492d620):
+               kb
+         EOS
+@@ -188,7 +201,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "dumps a crate installed from a local path without a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           bat v0.24.0 (/Users/test/src/bat):
+               bat
+         EOS
+@@ -197,7 +210,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "dumps a crate installed from a file:// repository without a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           bat v0.24.0 (file:///Users/test/src/bat#3492d620):
+               bat
+         EOS
+@@ -206,7 +219,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       end
+ 
+       it "ignores an origin it cannot classify as a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
++        stub_cargo_list(<<~EOS)
+           ripgrep v13.0.0 (registry+sparse):
+               rg
+         EOS
+@@ -218,7 +231,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
+       it "passes metacharacters in cargo's path literally" do
+         cargo = Pathname("cargo; touch /tmp/pwned")
+         allow(described_class).to receive(:package_manager_executable).and_return(cargo)
+-        expect(Utils).to receive(:popen_read_text).with(cargo, "install", "--list", err: :err).and_return("")
++        expect(described_class).to receive(:command_output).with(cargo, args:         ["install", "--list"],
++                                                                        print_stderr: true).and_return("")
+ 
+         dumper.packages
+       end
+diff --git a/Library/Homebrew/test/bundle/flatpak_spec.rb b/Library/Homebrew/test/bundle/flatpak_spec.rb
+index b431fc751b..eb2128b5ec 100644
+--- a/Library/Homebrew/test/bundle/flatpak_spec.rb
++++ b/Library/Homebrew/test/bundle/flatpak_spec.rb
+@@ -3,9 +3,70 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/flatpak"
+ 
+ RSpec.describe Homebrew::Bundle::Flatpak do
++  let(:inventory_records) { ["Example.App"] }
++  let(:inventory_output) { "Example.App\tflathub\n" }
++
++  describe "remote discovery failures" do
++    let(:flatpak) { mktmpdir/"flatpak" }
++
++    before do
++      described_class.reset!
++      flatpak.write <<~SH
++        #!/bin/sh
++        if [ "$1" = list ]; then printf 'Example.App\\tflathub\\n'; exit 0; fi
++        printf '%s\\n' 'remote unavailable' >&2
++        exit 2
++      SH
++      flatpak.chmod 0755
++      allow(described_class).to receive(:package_manager_executable).and_return(flatpak)
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    it "rejects remote failure after a successful package listing" do
++      expect { described_class.packages }.to raise_error(ErrorDuringExecution, /remote unavailable/)
++    end
++
++    it "retries remote discovery without reset" do
++      expect { described_class.packages }.to raise_error(ErrorDuringExecution)
++      flatpak.write "#!/bin/sh\nprintf 'Example.App\\tflathub\\n'\n"
++      expect(described_class.packages).to eq(["Example.App"])
++    end
++
++    it "reports refresh failure after installation without reinstalling" do
++      flatpak.write "#!/bin/sh\nprintf 'Example.App\\tflathub\\n'\n"
++      described_class.packages
++      expect(Homebrew::Bundle).to receive(:system).once.and_return(true)
++      flatpak.write "#!/bin/sh\nexit 2\n"
++      expect do
++        described_class.install_flatpakref!(flatpak.to_s, "Example.App", "https://example.com/app.flatpakref",
++                                            verbose: false)
++      end.to raise_error(ErrorDuringExecution)
++      flatpak.write "#!/bin/sh\nexit 0\n"
++      expect(described_class.packages).to eq([])
++    end
++  end
++
++  describe "checked inventory" do
++    before do
++      allow(described_class).to receive(:remote_urls).and_return({})
++    end
++
++    it_behaves_like "a checked package inventory"
++
++    context "with installed records" do
++      let(:inventory_records) { [{ name: "Example.App", remote: "flathub", remote_url: nil }] }
++
++      it_behaves_like "a checked inventory", :installed_packages
++    end
++  end
++
+   describe "cleanup" do
+     test_each([false, nil]) do |result|
+       it "continues after #{result.inspect} with the resolved executable and unchanged environment" do
+@@ -152,8 +213,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+       end
+ 
+       it "returns remote URLs" do
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "remote-list", "--system", "--columns=name,url", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["remote-list", "--system", "--columns=name,url"])
+           .and_return("flathub\thttps://dl.flathub.org/repo/\nfedora\thttps://registry.fedoraproject.org/\n")
+         expect(dumper.remote_urls).to eql({
+           "flathub" => "https://dl.flathub.org/repo/",
+@@ -162,11 +223,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+       end
+ 
+       it "returns package list with remotes and URLs" do
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "list", "--app", "--columns=application,origin", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["list", "--app", "--columns=application,origin"])
+           .and_return("org.gnome.Calculator\tflathub\ncom.spotify.Client\tflathub\n")
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "remote-list", "--system", "--columns=name,url", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["remote-list", "--system", "--columns=name,url"])
+           .and_return("flathub\thttps://dl.flathub.org/repo/\n")
+         expect(dumper.packages_with_remotes).to eql([
+           { name: "com.spotify.Client", remote: "flathub", remote_url: "https://dl.flathub.org/repo/" },
+@@ -175,11 +236,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+       end
+ 
+       it "returns package names only" do
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "list", "--app", "--columns=application,origin", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["list", "--app", "--columns=application,origin"])
+           .and_return("org.gnome.Calculator\tflathub\ncom.spotify.Client\tflathub\n")
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "remote-list", "--system", "--columns=name,url", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["remote-list", "--system", "--columns=name,url"])
+           .and_return("flathub\thttps://dl.flathub.org/repo/\n")
+         expect(dumper.packages).to eql(["com.spotify.Client", "org.gnome.Calculator"])
+       end
+@@ -248,11 +309,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+       end
+ 
+       it "handles packages without origin" do
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "list", "--app", "--columns=application,origin", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["list", "--app", "--columns=application,origin"])
+           .and_return("org.gnome.Calculator\n")
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("flatpak"), "remote-list", "--system", "--columns=name,url", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("flatpak"), args: ["remote-list", "--system", "--columns=name,url"])
+           .and_return("flathub\thttps://dl.flathub.org/repo/\n")
+         expect(dumper.packages_with_remotes).to eql([
+           { name: "org.gnome.Calculator", remote: "flathub", remote_url: "https://dl.flathub.org/repo/" },
+@@ -389,8 +450,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+           end
+ 
+           it "installs from .flatpakref directly" do
+-            allow(Utils).to receive(:popen_read_text)
+-              .with("flatpak", "list", "--app", "--columns=application,origin", err: File::NULL)
++            allow(described_class).to receive(:command_output)
++              .with("flatpak", args: ["list", "--app", "--columns=application,origin"])
+               .and_return("org.example.App\texample-origin\n")
+ 
+             expect(Homebrew::Bundle).to \
+diff --git a/Library/Homebrew/test/bundle/go_spec.rb b/Library/Homebrew/test/bundle/go_spec.rb
+index c0828dbb1d..c04547759d 100644
+--- a/Library/Homebrew/test/bundle/go_spec.rb
++++ b/Library/Homebrew/test/bundle/go_spec.rb
+@@ -3,9 +3,110 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/go"
+ 
+ RSpec.describe Homebrew::Bundle::Go do
++  let(:inventory_bin) do
++    bin = mktmpdir
++    binary = bin/"example; literal $(value)"
++    binary.write ""
++    binary.chmod 0755
++    bin
++  end
++  let(:inventory_output) { "\tpath\texample.com/tool\n" }
++  let(:inventory_records) { ["example.com/tool"] }
++
++  describe "checked inventory" do
++    before do
++      allow(described_class).to receive(:command_output)
++        .with(anything, args: ["env", anything], print_stderr: true).and_return(inventory_bin.to_s)
++    end
++
++    it_behaves_like "a checked package inventory"
++    it_behaves_like "a checked inventory", :installed_packages
++  end
++
++  describe "checked discovery" do
++    let(:go) { mktmpdir/"go" }
++    let(:bin) { mktmpdir }
++
++    before do
++      described_class.reset!
++      (bin/"first").write ""
++      (bin/"first").chmod 0755
++      (bin/"second").write ""
++      (bin/"second").chmod 0755
++      go.write <<~SH
++        #!/bin/sh
++        if [ "$1" = env ]; then
++          printf '%s\\n' '#{bin}'
++          exit 0
++        fi
++        if [ "$3" = '#{bin}/first' ]; then
++          printf '\\tpath\\texample.com/tool\\n'
++          exit 0
++        fi
++        printf '%s\\n' 'metadata unavailable' >&2
++        exit 1
++      SH
++      go.chmod 0755
++      allow(described_class).to receive(:package_manager_executable).and_return(go)
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    test_each(["GOBIN", "GOPATH"]) do |variable|
++      it "rejects a failed #{variable} query" do
++        go.write <<~SH
++          #!/bin/sh
++          if [ "$2" = '#{variable}' ]; then exit 2; fi
++          printf '%s' '#{bin}'
++        SH
++        expect { described_class.packages }.to raise_error(ErrorDuringExecution)
++      end
++    end
++
++    it "reports an unreadable directory" do
++      allow(Dir).to receive(:children).with(bin.to_s).and_raise(Errno::EACCES)
++      expect { described_class.packages }.to raise_error(Errno::EACCES)
++    end
++
++    test_each(["not a Go executable", "unrecognized file format"]) do |diagnostic|
++      it "excludes only an exact file-bound #{diagnostic} negative" do
++        go.write <<~SH
++          #!/bin/sh
++          if [ "$1" = env ]; then printf '%s' '#{bin}'; exit 0; fi
++          printf '%s: could not read Go build info from %s: %s\\n' "$3" "$3" '#{diagnostic}' >&2
++          exit 1
++        SH
++        expect(described_class.packages).to eq([])
++      end
++    end
++
++    it "rejects plausible metadata from a failed command" do
++      go.write <<~SH
++        #!/bin/sh
++        if [ "$1" = env ]; then printf '%s' '#{bin}'; exit 0; fi
++        printf '\\tpath\\texample.com/tool\\n'
++        printf '%s: not a Go executable\\n' "$3" >&2
++        exit 1
++      SH
++      expect { described_class.packages }.to raise_error(ErrorDuringExecution)
++    end
++
++    it "rejects an unknown metadata failure after accepted metadata" do
++      expect { described_class.packages }.to raise_error(ErrorDuringExecution, /metadata unavailable/)
++    end
++
++    it "finishes discovery before removing any executable" do
++      expect(File).not_to receive(:unlink)
++      expect { described_class.cleanup!(["example.com/tool"]) }.to raise_error(ErrorDuringExecution)
++    end
++  end
++
+   describe "dumping" do
+     subject(:dumper) { described_class }
+ 
+@@ -29,16 +130,20 @@ RSpec.describe Homebrew::Bundle::Go do
+ 
+       it "returns package list" do
+         allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
+-        allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOBIN", err: :err).and_return("")
+-        allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOPATH",
+-                                                  err: :err).and_return("/Users/test/go")
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("go"), args:         ["env", "GOBIN"],
++                                print_stderr: true).and_return("")
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("go"), args:         ["env", "GOPATH"],
++                                print_stderr: true).and_return("/Users/test/go")
+         allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
+-        allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return(["/Users/test/go/bin/crush"])
++        allow(Dir).to receive(:children).with("/Users/test/go/bin").and_return(["crush"])
+         allow(File).to receive(:executable?).with("/Users/test/go/bin/crush").and_return(true)
+         allow(File).to receive(:directory?).with("/Users/test/go/bin/crush").and_return(false)
+-        allow(Utils).to receive(:popen_read)
+-          .with(Pathname("go"), "version", "-m", "/Users/test/go/bin/crush", err: File::NULL)
+-          .and_return("\tpath\tgithub.com/charmbracelet/crush\n")
++        allow(SystemCommand).to receive(:run)
++          .with(Pathname("go"), args: ["version", "-m", "/Users/test/go/bin/crush"], print_stderr: false)
++          .and_return(instance_double(SystemCommand::Result, success?: true,
++                                                             stdout:   "\tpath\tgithub.com/charmbracelet/crush\n"))
+         expect(dumper.packages).to eql(["github.com/charmbracelet/crush"])
+       end
+ 
+@@ -158,15 +263,19 @@ RSpec.describe Homebrew::Bundle::Go do
+       binary = "/Users/test/go/bin/cr;ush $(touch pwned)"
+       allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
+       allow(described_class).to receive(:puts)
+-      allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOBIN", err: :err).and_return("")
+-      allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOPATH", err: :err)
+-                                          .and_return("/Users/test/go")
++      allow(described_class).to receive(:command_output).with(Pathname("go"), args:         ["env", "GOBIN"],
++                                                                              print_stderr: true).and_return("")
++      allow(described_class).to receive(:command_output).with(Pathname("go"), args:         ["env", "GOPATH"],
++                                                                              print_stderr: true)
++                                                        .and_return("/Users/test/go")
+       allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
+-      allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return([binary])
++      allow(Dir).to receive(:children).with("/Users/test/go/bin").and_return([File.basename(binary)])
+       allow(File).to receive(:executable?).with(binary).and_return(true)
+       allow(File).to receive(:directory?).with(binary).and_return(false)
+-      allow(Utils).to receive(:popen_read).with(Pathname("go"), "version", "-m", binary, err: File::NULL)
+-                                          .and_return("\tpath\tgithub.com/charmbracelet/crush\n")
++      allow(SystemCommand).to receive(:run)
++        .with(Pathname("go"), args: ["version", "-m", binary], print_stderr: false)
++        .and_return(instance_double(SystemCommand::Result, success?: true,
++                                                           stdout:   "\tpath\tgithub.com/charmbracelet/crush\n"))
+ 
+       expect(File).to receive(:unlink).with(binary)
+ 
+@@ -178,19 +287,22 @@ RSpec.describe Homebrew::Bundle::Go do
+ 
+       before do
+         Homebrew.failed = false
+-        allow(Utils).to receive(:popen_read)
+-          .with(Pathname("go"), "env", "GOBIN", err: :err).and_return("/tmp/go/bin")
+-        allow(Utils).to receive(:popen_read)
+-          .with(Pathname("go"), "env", "GOPATH", err: :err).and_return("/tmp/go")
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("go"), args: ["env", "GOBIN"], print_stderr: true).and_return("/tmp/go/bin")
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("go"), args: ["env", "GOPATH"], print_stderr: true).and_return("/tmp/go")
+         allow(File).to receive(:directory?).with("/tmp/go/bin").and_return(true)
+-        allow(Dir).to receive(:glob).with("/tmp/go/bin/*").and_return(executables)
++        allow(Dir).to receive(:children).with("/tmp/go/bin").and_return(executables.map { |file|
++          File.basename(file)
++        })
+         executables.each do |executable|
+           allow(File).to receive(:executable?).with(executable).and_return(true)
+           allow(File).to receive(:directory?).with(executable).and_return(false)
+           allow(File).to receive(:symlink?).with(executable).and_return(false)
+-          allow(Utils).to receive(:popen_read)
+-            .with(Pathname("go"), "version", "-m", executable, err: File::NULL)
+-            .and_return("\tpath\texample.com/tools/example\n")
++          allow(SystemCommand).to receive(:run)
++            .with(Pathname("go"), args: ["version", "-m", executable], print_stderr: false)
++            .and_return(instance_double(SystemCommand::Result, success?: true,
++                                                               stdout:   "\tpath\texample.com/tools/example\n"))
+           allow(File).to receive(:unlink).with(executable).and_return(1)
+         end
+       end
+diff --git a/Library/Homebrew/test/bundle/krew_spec.rb b/Library/Homebrew/test/bundle/krew_spec.rb
+index 766b4638db..becc147e0e 100644
+--- a/Library/Homebrew/test/bundle/krew_spec.rb
++++ b/Library/Homebrew/test/bundle/krew_spec.rb
+@@ -4,8 +4,63 @@
+ require "bundle"
+ require "bundle/dsl"
+ require "bundle/extensions/krew"
++require "bundle/extensions/npm"
++require "bundle/extensions/winget"
++require "bundle/shared_examples/inventory"
+ 
+ RSpec.describe Homebrew::Bundle::Krew do
++  let(:inventory_output) { "example-tool\n" }
++  let(:inventory_records) { ["example-tool"] }
++
++  it_behaves_like "a checked package inventory"
++  it_behaves_like "a checked inventory", :installed_packages
++
++  describe "selected extension snapshots" do
++    let(:krew) { mktmpdir/"krew" }
++    let(:npm) { mktmpdir/"npm" }
++    let(:brewfile) { mktmpdir/"Brewfile" }
++
++    before do
++      described_class.reset!
++      Homebrew::Bundle::Npm.reset!
++      krew.write "#!/bin/sh\nprintf '%s\\n' 'example-tool'\nexit 2\n"
++      krew.chmod 0755
++      npm.write "#!/bin/sh\nprintf '%s' '{\"dependencies\":{\"example-tool\":{}}}'\n"
++      npm.chmod 0755
++      allow(described_class).to receive(:package_manager_executable).and_return(krew)
++      allow(Homebrew::Bundle::Npm).to receive(:package_manager_executable).and_return(npm)
++      allow(Homebrew::Bundle).to receive(:dump_package_types).and_return([
++        Homebrew::Bundle::Npm, described_class, Homebrew::Bundle::Winget
++      ])
++    end
++
++    after do
++      described_class.reset!
++      Homebrew::Bundle::Npm.reset!
++    end
++
++    it "preserves the destination when a later selected extension fails" do
++      brewfile.write "# original\n"
++      expect do
++        Homebrew::Bundle::Dumper.dump_brewfile(
++          global: false, file: brewfile.to_s, describe: false, force: true, no_restart: false,
++          formulae: false, taps: false, casks: false, extension_types: { npm: true, krew: true }
++        )
++      end.to raise_error(ErrorDuringExecution)
++      expect(brewfile.read).to eq("# original\n")
++    end
++
++    it "does not query unselected managers or require PowerShell" do
++      expect(Homebrew::Bundle::Winget).not_to receive(:package_manager_executable)
++      expect(described_class).not_to receive(:package_manager_executable)
++      Homebrew::Bundle::Dumper.dump_brewfile(
++        global: false, file: brewfile.to_s, describe: false, force: true, no_restart: false,
++        formulae: false, taps: false, casks: false, extension_types: { npm: true, krew: false, winget: false }
++      )
++      expect(brewfile.read).to eq("npm \"example-tool\"\n")
++    end
++  end
++
+   describe "dumping" do
+     subject(:dumper) { described_class }
+ 
+@@ -29,15 +84,15 @@ RSpec.describe Homebrew::Bundle::Krew do
+       end
+ 
+       it "returns plugin list" do
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("kubectl-krew"), "list", err: File::NULL)
+-                                                 .and_return("ctx\nneat\nns\n")
++        allow(described_class).to receive(:command_output).with(Pathname("kubectl-krew"), args: ["list"])
++                                                          .and_return("ctx\nneat\nns\n")
+ 
+         expect(dumper.packages).to eql(%w[ctx neat ns])
+       end
+ 
+       it "handles empty output" do
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("kubectl-krew"), "list",
+-                                                       err: File::NULL).and_return("")
++        allow(described_class).to receive(:command_output).with(Pathname("kubectl-krew"),
++                                                                args: ["list"]).and_return("")
+ 
+         expect(dumper.packages).to be_empty
+       end
+@@ -101,6 +156,7 @@ RSpec.describe Homebrew::Bundle::Krew do
+             package_manager_executable: Pathname.new("/usr/local/bin/kubectl-krew"),
+             package_manager_installed?: true,
+             installed_packages:         [],
++            packages:                   [],
+           )
+         end
+ 
+diff --git a/Library/Homebrew/test/bundle/mac_app_store_spec.rb b/Library/Homebrew/test/bundle/mac_app_store_spec.rb
+index 8fc17d327c..8f790f770b 100644
+--- a/Library/Homebrew/test/bundle/mac_app_store_spec.rb
++++ b/Library/Homebrew/test/bundle/mac_app_store_spec.rb
+@@ -3,9 +3,22 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/mac_app_store"
+ 
+ RSpec.describe Homebrew::Bundle::MacAppStore do
++  let(:inventory_output) { "123 Example café (1.0)\n" }
++  let(:inventory_records) { [have_attributes(id: "123", name: "Example café")] }
++
++  it_behaves_like "a checked package inventory"
++  it_behaves_like "a checked inventory", :installed_packages
++
++  describe "checked outdated inventory" do
++    let(:inventory_records) { ["123"] }
++
++    it_behaves_like "a checked inventory", :outdated_app_ids
++  end
++
+   describe "dumping" do
+     subject(:dumper) { described_class }
+ 
+@@ -25,7 +38,7 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("mas"), "list", err: File::NULL).and_return("")
++        allow(described_class).to receive(:command_output).with(Pathname("mas"), args: ["list"]).and_return("")
+       end
+ 
+       specify do
+@@ -38,7 +51,7 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("mas"), "list", err: File::NULL).and_return(
++        allow(described_class).to receive(:command_output).with(Pathname("mas"), args: ["list"]).and_return(
+           "123 foo (1.0)\n" \
+           "456 bar (2.0)\n" \
+           "789 baz (3.0)",
+@@ -54,9 +67,9 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("mas"), "list", err: File::NULL)
+-                                                 .and_return("123 foo (1.0)\n456 bar (2.0)\n" \
+-                                                             "789 baz (3.0)\n 10 qux (4.0)")
++        allow(described_class).to receive(:command_output).with(Pathname("mas"), args: ["list"])
++                                                          .and_return("123 foo (1.0)\n456 bar (2.0)\n" \
++                                                                      "789 baz (3.0)\n 10 qux (4.0)")
+       end
+ 
+       it "returns list %w[foo bar baz qux]" do
+@@ -140,9 +153,9 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read)
+-          .with(Pathname("mas"), "list", err: File::NULL)
+-          .and_return(invalid_mas_output.b)
++        allow(SystemCommand).to receive(:run!)
++          .with(Pathname("mas"), args: ["list"], print_stderr: false)
++          .and_return(instance_double(SystemCommand::Result, stdout: invalid_mas_output))
+       end
+ 
+       specify do
+@@ -171,8 +184,8 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("mas"), "list",
+-                                                       err: File::NULL).and_return(new_mas_output)
++        allow(described_class).to receive(:command_output).with(Pathname("mas"),
++                                                                args: ["list"]).and_return(new_mas_output)
+       end
+ 
+       it "parses the app names without trailing whitespace" do
+@@ -200,8 +213,8 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("mas"))
+-        allow(Utils).to receive(:popen_read_text).with(Pathname("mas"), "list",
+-                                                       err: File::NULL).and_return(new_mas_output)
++        allow(described_class).to receive(:command_output).with(Pathname("mas"),
++                                                                args: ["list"]).and_return(new_mas_output)
+       end
+ 
+       it "parses the app versions without parentheses" do
+@@ -219,8 +232,13 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+     end
+ 
+     describe ".installed_app_ids" do
+-      it "shells out" do
+-        expect { described_class.installed_app_ids }.not_to raise_error
++      it "queries installed app IDs through the checked command" do
++        described_class.reset!
++        allow(described_class).to receive(:package_manager_executable).and_return(Pathname("mas"))
++        expect(SystemCommand).to receive(:run!).with(Pathname("mas"), args: ["list"], print_stderr: false)
++                                               .and_return(instance_double(SystemCommand::Result, stdout: ""))
++
++        expect(described_class.installed_app_ids).to eq([])
+       end
+     end
+ 
+@@ -246,7 +264,7 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+ 
+       describe ".outdated_app_ids" do
+         it "does not shell out" do
+-          expect(Utils).not_to receive(:popen_read_text)
++          expect(described_class).not_to receive(:command_output)
+           described_class.reset!
+           described_class.outdated_app_ids
+         end
+@@ -260,8 +278,8 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+ 
+       describe ".outdated_app_ids" do
+         it "returns app ids" do
+-          expect(Utils).to receive(:popen_read_text).with(Pathname("mas"), "outdated",
+-                                                          err: File::NULL).and_return("foo 123")
++          expect(described_class).to receive(:command_output).with(Pathname("mas"),
++                                                                   args: ["outdated"]).and_return("foo 123")
+           described_class.reset!
+           described_class.outdated_app_ids
+         end
+@@ -269,7 +287,7 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+ 
+       context "when app is installed" do
+         before do
+-          allow(described_class).to receive(:installed_app_ids).and_return([123])
++          allow(described_class).to receive_messages(installed_app_ids: [123], outdated_app_ids: [])
+         end
+ 
+         it "skips" do
+@@ -293,7 +311,7 @@ RSpec.describe Homebrew::Bundle::MacAppStore do
+ 
+       context "when app is not installed" do
+         before do
+-          allow(described_class).to receive(:installed_app_ids).and_return([])
++          allow(described_class).to receive_messages(installed_app_ids: [], apps: [])
+         end
+ 
+         it "installs app" do
+diff --git a/Library/Homebrew/test/bundle/npm_spec.rb b/Library/Homebrew/test/bundle/npm_spec.rb
+index 30c9c5d995..8cd20616b0 100644
+--- a/Library/Homebrew/test/bundle/npm_spec.rb
++++ b/Library/Homebrew/test/bundle/npm_spec.rb
+@@ -3,11 +3,92 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/npm"
+ require "bundle/installer"
+ require "language/node"
+ 
+ RSpec.describe Homebrew::Bundle::Npm do
++  let(:inventory_output) { '{"dependencies":{"example-tool":{}}}' }
++  let(:inventory_records) { ["example-tool"] }
++
++  it_behaves_like "a checked package inventory", empty_output: "{}"
++  it_behaves_like "a checked inventory", :installed_packages, empty_output: "{}"
++
++  describe "checked JSON inventory" do
++    let(:npm) { mktmpdir/"npm" }
++
++    before do
++      described_class.reset!
++      npm.chmod 0755 if npm.exist?
++      allow(described_class).to receive(:package_manager_executable).and_return(npm)
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    def npm_result(json, status)
++      npm.write "#!/bin/sh\nprintf '%s' #{JSON.generate(json).shellescape}\nexit #{status}\n"
++      npm.chmod 0755
++    end
++
++    it "rejects a diagnostic envelope despite plausible dependencies" do
++      npm_result({ "dependencies" => { "example-tool" => {} }, "error" => { "code" => "ENETWORK" } }, 1)
++      expect { described_class.packages }.to raise_error(ErrorDuringExecution)
++    end
++
++    it "accepts installed packages from an ELSPROBLEMS tree and excludes missing packages" do
++      npm_result({ "dependencies" => { "example-tool" => { "invalid" => true },
++                                       "missing-tool" => { "missing" => true } },
++                   "problems"     => ["missing: missing-tool from Example's tools"],
++                   "error"        => { "code" => "ELSPROBLEMS" } }, 1)
++      expect(described_class.packages).to eq(["example-tool"])
++    end
++
++    it "rejects invalid successful JSON" do
++      npm_result([], 0)
++      expect { described_class.packages }.to raise_error(RuntimeError, /Invalid npm list inventory/)
++    end
++
++    it "rejects failed empty outdated output" do
++      npm.write "#!/bin/sh\nexit 1\n"
++      npm.chmod 0755
++      expect { described_class.outdated_packages }.to raise_error(ErrorDuringExecution)
++    end
++
++    test_each([{}, { "error" => { "code" => "ENETWORK" } },
++               { "example-tool" => [] },
++               { "example-tool" => [{ "wanted" => "1", "latest" => "2" }, {}] }]) do |json|
++      it "rejects invalid nonzero outdated JSON #{json.inspect}" do
++        npm_result(json, 1)
++        expect { described_class.outdated_packages }.to raise_error(ErrorDuringExecution)
++      end
++    end
++
++    it "accepts a real outdated package named error" do
++      npm_result({ "error" => { "wanted" => "1", "latest" => "2" } }, 1)
++      expect(described_class.outdated_packages).to eq(["error"])
++    end
++
++    it "accepts valid array-valued outdated records" do
++      npm_result({ "example-tool" => [{ "wanted" => "1", "latest" => "2" }] }, 1)
++      expect(described_class.outdated_packages).to eq(["example-tool"])
++    end
++  end
++
++  def stub_npm_list(output)
++    allow(SystemCommand).to receive(:run)
++      .with(Pathname("npm"), args: ["list", "-g", "--depth=0", "--json"], print_stderr: false)
++      .and_return(stub_npm_output(output))
++  end
++
++  def stub_npm_output(output)
++    SystemCommand::Result.new(["npm"], [[:stdout, output]],
++                              instance_double(Process::Status, success?: true, exitstatus: 0),
++                              secrets: [])
++  end
++
+   describe "dumping" do
+     subject(:dumper) { described_class }
+ 
+@@ -24,15 +105,13 @@ RSpec.describe Homebrew::Bundle::Npm do
+     end
+ 
+     context "when npm is installed" do
+-      let(:npm_list_args) { [Pathname("npm"), "list", "-g", "--depth=0", "--json"] }
+-
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("npm"))
+       end
+ 
+       it "returns package list" do
+-        allow(Utils).to receive(:popen_read_text).with(*npm_list_args, err: File::NULL).and_return(<<~JSON)
++        stub_npm_list(<<~JSON)
+           {
+             "dependencies": {
+               "npm": { "version": "11.11.0" },
+@@ -51,17 +130,17 @@ RSpec.describe Homebrew::Bundle::Npm do
+         npm.write("")
+ 
+         allow(described_class).to receive(:package_manager_executable).and_return(npm)
+-        expect(Utils).to receive(:popen_read_text)
+-          .with(npm, "list", "-g", "--depth=0", "--json", err: File::NULL) do
++        expect(SystemCommand).to receive(:run)
++          .with(npm, args: ["list", "-g", "--depth=0", "--json"], print_stderr: false) do
+           expect(ENV.fetch("PATH", "")).to start_with("#{npm.dirname}:")
+-          '{"dependencies":{"eslint":{"version":"10.4.0"}}}'
++          stub_npm_output('{"dependencies":{"eslint":{"version":"10.4.0"}}}')
+         end
+ 
+         expect(dumper.packages).to eql(["eslint"])
+       end
+ 
+       it "excludes npm itself from the package list" do
+-        allow(Utils).to receive(:popen_read_text).with(*npm_list_args, err: File::NULL).and_return(<<~JSON)
++        stub_npm_list(<<~JSON)
+           {
+             "dependencies": {
+               "npm": { "version": "11.11.0" }
+@@ -73,15 +152,15 @@ RSpec.describe Homebrew::Bundle::Npm do
+       end
+ 
+       it "handles invalid JSON" do
+-        allow(Utils).to receive(:popen_read_text).with(*npm_list_args, err: File::NULL).and_return("not json")
++        stub_npm_list("not json")
+ 
+-        expect(dumper.packages).to be_empty
++        expect { dumper.packages }.to raise_error(/Invalid npm list inventory/)
+       end
+ 
+       it "handles empty output" do
+-        allow(Utils).to receive(:popen_read_text).with(*npm_list_args, err: File::NULL).and_return("")
++        stub_npm_list("")
+ 
+-        expect(dumper.packages).to be_empty
++        expect { dumper.packages }.to raise_error(/Invalid npm list inventory/)
+       end
+ 
+       it "dumps package list" do
+@@ -98,29 +177,30 @@ RSpec.describe Homebrew::Bundle::Npm do
+     end
+ 
+     it "lists outdated packages, including scoped packages, but excludes npm" do
+-      allow(Utils).to receive(:popen_read_text)
+-        .with(Pathname("npm"), "outdated", "-g", "--depth=0", "--json", err: File::NULL).and_return(<<~JSON)
+-          {
+-            "npm": { "current": "11.10.0", "latest": "11.11.0" },
+-            "vercel": { "current": "38.0.0", "latest": "39.0.0" },
+-            "@example/cli": { "current": "1.0.0", "latest": "2.0.0" }
+-          }
+-        JSON
++      allow(SystemCommand).to receive(:run)
++        .with(Pathname("npm"), args: ["outdated", "-g", "--depth=0",
++                                      "--json"], print_stderr: false).and_return(stub_npm_output(<<~JSON))
++                                        {
++                                          "npm": { "current": "11.10.0", "wanted": "11.11.0", "latest": "11.11.0" },
++                                          "vercel": { "current": "38.0.0", "wanted": "39.0.0", "latest": "39.0.0" },
++                                          "@example/cli": { "current": "1.0.0", "wanted": "2.0.0", "latest": "2.0.0" }
++                                        }
++                                      JSON
+ 
+       expect(described_class.outdated_packages).to eq(["vercel", "@example/cli"])
+     end
+ 
+     it "adds npm's directory to PATH when checking outdated packages" do
+-      allow(Utils).to receive(:popen_read_text) do
++      allow(SystemCommand).to receive(:run) do
+         expect(ENV.fetch("PATH")).to start_with(".:#{ORIGINAL_PATHS.join(":")}")
+-        "{}"
++        stub_npm_output("{}")
+       end
+ 
+       described_class.outdated_packages
+     end
+ 
+     it "caches outdated packages until reset" do
+-      expect(Utils).to receive(:popen_read_text).twice.and_return("{}")
++      expect(SystemCommand).to receive(:run).twice.and_return(stub_npm_output("{}"))
+ 
+       described_class.outdated_packages
+       described_class.outdated_packages
+@@ -128,13 +208,11 @@ RSpec.describe Homebrew::Bundle::Npm do
+       described_class.outdated_packages
+     end
+ 
+-    it "handles empty or invalid output" do
+-      expect(["", "not json", "{}"].map do |output|
+-        described_class.reset!
+-        allow(Utils).to receive(:popen_read_text).and_return(output)
+-
+-        described_class.outdated_packages
+-      end).to eq([[], [], []])
++    test_each(["", "not json"]) do |output|
++      it "rejects invalid outdated output #{output.inspect}" do
++        allow(SystemCommand).to receive(:run).and_return(stub_npm_output(output))
++        expect { described_class.outdated_packages }.to raise_error(/Invalid npm outdated inventory/)
++      end
+     end
+ 
+     it "returns no outdated packages when npm is not installed" do
+diff --git a/Library/Homebrew/test/bundle/shared_examples/inventory.rb b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
+new file mode 100644
+index 0000000000..1822fe8c69
+--- /dev/null
++++ b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
+@@ -0,0 +1,143 @@
++# typed: true
++# frozen_string_literal: true
++
++require "bundle/dumper"
++
++RSpec.shared_examples "a checked inventory" do |inventory_method = nil, empty_output: "", stderr_forwarded: false|
++  let(:inventory_output) { super() }
++  let(:inventory_records) { super() }
++
++  let(:inventory_executable) { mktmpdir/"example-tool" }
++
++  def write_inventory(output: "", status: 0)
++    inventory_executable.write <<~SH
++      #!/bin/sh
++      printf '%s' #{output.shellescape}
++      printf '%s\\n' 'inventory diagnostic' >&2
++      exit #{status}
++    SH
++    inventory_executable.chmod 0755
++  end
++
++  before do
++    described_class.reset!
++    write_inventory(output: inventory_output)
++    allow(described_class).to receive(:package_manager_executable).and_return(inventory_executable)
++  end
++
++  after do
++    described_class.reset!
++  end
++
++  it "parses only stdout" do
++    expect(described_class.public_send(inventory_method)).to match(inventory_records)
++  end
++
++  it "preserves the command's successful stderr policy" do
++    if stderr_forwarded
++      expect { described_class.public_send(inventory_method) }.to output(/inventory diagnostic/).to_stderr
++    else
++      expect { described_class.public_send(inventory_method) }.not_to output.to_stderr
++    end
++  end
++
++  it "rejects failed empty output" do
++    write_inventory(status: 2)
++    expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
++  end
++
++  it "retries failed inventory without reset" do
++    write_inventory(status: 2)
++    expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
++    write_inventory(output: inventory_output)
++
++    expect(described_class.public_send(inventory_method)).to match(inventory_records)
++  end
++
++  it "caches accepted inventory" do
++    described_class.public_send(inventory_method)
++    write_inventory(status: 2)
++
++    expect(described_class.public_send(inventory_method)).to match(inventory_records)
++  end
++
++  it "caches a successful empty inventory" do
++    write_inventory(output: empty_output)
++    described_class.public_send(inventory_method)
++    write_inventory(status: 2)
++
++    expect(described_class.public_send(inventory_method)).to eq([])
++  end
++
++  it "queries again after reset" do
++    described_class.public_send(inventory_method)
++    write_inventory(output: empty_output)
++    described_class.reset!
++
++    expect(described_class.public_send(inventory_method)).to eq([])
++  end
++
++  it "rejects failed partial inventory with diagnostics" do
++    write_inventory(output: inventory_output, status: 2)
++    expect { described_class.public_send(inventory_method) }
++      .to raise_error(ErrorDuringExecution, /exited with 2.*inventory diagnostic/m)
++  end
++
++  it "rejects termination by signal" do
++    inventory_executable.write "#!/bin/sh\nkill -TERM $$\n"
++    expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
++  end
++end
++
++RSpec.shared_examples "a failed inventory dump" do
++  extend Test::Helper::TestEach
++
++  let(:inventory_output) { super() }
++
++  def write_inventory(output: "", status: 0)
++    super
++  end
++
++  let(:brewfile) { mktmpdir/"Brewfile" }
++
++  def dump_inventory(file)
++    Homebrew::Bundle::Dumper.dump_brewfile(
++      global: false, file:, describe: false, force: true, no_restart: false,
++      formulae: false, taps: false, casks: false, extension_types: { described_class.type => true }
++    )
++  end
++
++  test_each(["", :inventory_output]) do |failed_output|
++    context "with #{(failed_output == "") ? "empty" : "partial"} failed output" do
++      before do
++        described_class.reset!
++        write_inventory(output: (failed_output == "") ? "" : inventory_output, status: 2)
++      end
++
++      it "preserves an existing Brewfile with force enabled" do
++        brewfile.write "# existing Brewfile\n"
++        expect { dump_inventory(brewfile.to_s) }.to raise_error(ErrorDuringExecution)
++        expect(brewfile.read).to eq("# existing Brewfile\n")
++      end
++
++      it "does not create a Brewfile" do
++        expect { dump_inventory(brewfile.to_s) }.to raise_error(ErrorDuringExecution)
++        expect(brewfile).not_to exist
++      end
++
++      it "does not print an inventory fragment to stdout" do
++        expect do
++          expect { dump_inventory("-") }.to raise_error(ErrorDuringExecution)
++        end.not_to output.to_stdout
++      end
++    end
++  end
++end
++
++RSpec.shared_examples "a checked package inventory" do |empty_output: "", stderr_forwarded: false|
++  include_examples "a checked inventory", :packages, empty_output: empty_output, stderr_forwarded: stderr_forwarded
++
++  context "when dumping" do
++    include_examples "a failed inventory dump"
++  end
++end
+diff --git a/Library/Homebrew/test/bundle/uv_spec.rb b/Library/Homebrew/test/bundle/uv_spec.rb
+index 57eeb1d147..0e4593ff26 100644
+--- a/Library/Homebrew/test/bundle/uv_spec.rb
++++ b/Library/Homebrew/test/bundle/uv_spec.rb
+@@ -3,10 +3,17 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/dumper"
+ require "bundle/extensions/uv"
+ 
+ RSpec.describe Homebrew::Bundle::Uv do
++  let(:inventory_output) { "example-tool v1.0 [required: https://example.com/café.whl]\n" }
++  let(:inventory_records) { [{ name: "example-tool", with: [], source: "https://example.com/café.whl" }] }
++
++  it_behaves_like "a checked package inventory"
++  it_behaves_like "a checked inventory", :installed_packages
++
+   def stub_tool_list(output)
+     allow(SystemCommand).to receive(:run!)
+       .with(Pathname("uv"),
+@@ -321,162 +328,6 @@ RSpec.describe Homebrew::Bundle::Uv do
+     end
+   end
+ 
+-  shared_examples "a uv inventory" do |inventory_method|
+-    let(:uv) { mktmpdir/"uv" }
+-
+-    before do
+-      described_class.reset!
+-      uv.write <<~'SH'
+-        #!/bin/sh
+-        printf '%s\n' 'example v1.0 [required: https://example.com/café.whl]'
+-        printf '%s\n' 'warning v1.0' >&2
+-      SH
+-      uv.chmod 0755
+-      allow(described_class).to receive(:package_manager_executable).and_return(uv)
+-    end
+-
+-    after do
+-      described_class.reset!
+-    end
+-
+-    it "preserves text encoding and parses only stdout" do
+-      expect(described_class.public_send(inventory_method)).to eq([
+-        { name: "example", with: [], source: "https://example.com/café.whl" },
+-      ])
+-    end
+-
+-    it "keeps successful stderr quiet" do
+-      expect { described_class.public_send(inventory_method) }.not_to output.to_stderr
+-    end
+-
+-    it "caches successful inventories until reset" do
+-      described_class.public_send(inventory_method)
+-      uv.write "#!/bin/sh\nexit 1\n"
+-
+-      expect(described_class.public_send(inventory_method)).to eq([
+-        { name: "example", with: [], source: "https://example.com/café.whl" },
+-      ])
+-    end
+-
+-    it "queries again after reset" do
+-      described_class.public_send(inventory_method)
+-      uv.write "#!/bin/sh\nexit 0\n"
+-      described_class.reset!
+-
+-      expect(described_class.public_send(inventory_method)).to eq([])
+-    end
+-
+-    it "caches a successful empty inventory" do
+-      uv.write <<~'SH'
+-        #!/bin/sh
+-        printf '%s\n' 'No tools installed' >&2
+-      SH
+-      described_class.public_send(inventory_method)
+-      uv.write "#!/bin/sh\nexit 1\n"
+-
+-      expect(described_class.public_send(inventory_method)).to eq([])
+-    end
+-
+-    context "when uv fails after printing a plausible inventory" do
+-      before do
+-        uv.write <<~'SH'
+-          #!/bin/sh
+-          printf '%s\n' 'example v1.0'
+-          printf '%s\n' 'inventory unavailable' >&2
+-          exit 2
+-        SH
+-      end
+-
+-      it "raises with the exit status and diagnostic" do
+-        expect { described_class.public_send(inventory_method) }
+-          .to raise_error(ErrorDuringExecution, /exited with 2.*inventory unavailable/m)
+-      end
+-
+-      it "also rejects failed empty output" do
+-        uv.write "#!/bin/sh\nexit 2\n"
+-
+-        expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
+-      end
+-
+-      it "retries a failed inventory without resetting the cache" do
+-        expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
+-        uv.write <<~'SH'
+-          #!/bin/sh
+-          printf '%s\n' 'another-example v2.0'
+-        SH
+-
+-        expect(described_class.public_send(inventory_method)).to eq([
+-          { name: "another-example", with: [], source: nil },
+-        ])
+-      end
+-    end
+-  end
+-
+-  describe ".packages" do
+-    it_behaves_like "a uv inventory", :packages
+-  end
+-
+-  describe ".installed_packages" do
+-    it_behaves_like "a uv inventory", :installed_packages
+-  end
+-
+-  shared_examples "a failed inventory dump" do |tool_list_output|
+-    subject(:dump_brewfile) do
+-      Homebrew::Bundle::Dumper.dump_brewfile(
+-        global:          false,
+-        file:            brewfile.to_s,
+-        describe:        false,
+-        force:           true,
+-        no_restart:      false,
+-        formulae:        false,
+-        taps:            false,
+-        casks:           false,
+-        extension_types: { uv: true },
+-      )
+-    end
+-
+-    let(:uv) { mktmpdir/"uv" }
+-    let(:brewfile) { mktmpdir/"Brewfile" }
+-
+-    before do
+-      described_class.reset!
+-      uv.write <<~SH
+-        #!/bin/sh
+-        printf '%s' '#{tool_list_output}'
+-        printf '%s\\n' 'inventory unavailable' >&2
+-        exit 2
+-      SH
+-      uv.chmod 0755
+-      allow(described_class).to receive(:package_manager_executable).and_return(uv)
+-    end
+-
+-    after do
+-      described_class.reset!
+-    end
+-
+-    it "preserves an existing Brewfile with force enabled" do
+-      brewfile.write "uv \"existing-tool\"\n"
+-
+-      expect { dump_brewfile }.to raise_error(ErrorDuringExecution)
+-      expect(brewfile.read).to eq("uv \"existing-tool\"\n")
+-    end
+-
+-    it "does not create a Brewfile" do
+-      expect { dump_brewfile }.to raise_error(ErrorDuringExecution)
+-      expect(brewfile).not_to exist
+-    end
+-  end
+-
+-  describe "dumping a Brewfile when uv fails" do
+-    context "with partial output" do
+-      it_behaves_like "a failed inventory dump", "example v1.0"
+-    end
+-
+-    context "with empty output" do
+-      it_behaves_like "a failed inventory dump", ""
+-    end
+-  end
+-
+   describe "installing" do
+     before do
+       ENV.delete("UV_PYTHON")
+diff --git a/Library/Homebrew/test/bundle/vscode_extension_spec.rb b/Library/Homebrew/test/bundle/vscode_extension_spec.rb
+index e3ee45468d..c6589557f3 100644
+--- a/Library/Homebrew/test/bundle/vscode_extension_spec.rb
++++ b/Library/Homebrew/test/bundle/vscode_extension_spec.rb
+@@ -3,10 +3,17 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/vscode_extension"
+ require "extend/kernel"
+ 
+ RSpec.describe Homebrew::Bundle::VscodeExtension do
++  let(:inventory_output) { "example.extension\n" }
++  let(:inventory_records) { ["example.extension"] }
++
++  it_behaves_like "a checked package inventory"
++  it_behaves_like "a checked inventory", :installed_packages
++
+   describe "cleanup" do
+     test_each([false, nil]) do |result|
+       it "reports #{result.inspect} and continues cleanup" do
+@@ -62,8 +69,8 @@ RSpec.describe Homebrew::Bundle::VscodeExtension do
+           tamasfe.even-better-toml
+         EOF
+ 
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("code"), "--list-extensions", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("code"), args: ["--list-extensions"])
+           .and_return(output)
+         expect(dumper.extensions).to eql([
+           "catppuccin.catppuccin-vsc",
+@@ -81,8 +88,8 @@ RSpec.describe Homebrew::Bundle::VscodeExtension do
+           GitHub.codespaces
+         EOF
+ 
+-        allow(Utils).to receive(:popen_read_text)
+-          .with(Pathname("code"), "--list-extensions", err: File::NULL)
++        allow(described_class).to receive(:command_output)
++          .with(Pathname("code"), args: ["--list-extensions"])
+           .and_return(output)
+ 
+         expect(dumper.extensions).to eql(["github.codespaces"])
+diff --git a/Library/Homebrew/test/bundle/winget_spec.rb b/Library/Homebrew/test/bundle/winget_spec.rb
+index 545a123352..a49840ac34 100644
+--- a/Library/Homebrew/test/bundle/winget_spec.rb
++++ b/Library/Homebrew/test/bundle/winget_spec.rb
+@@ -3,10 +3,115 @@
+ 
+ require "bundle"
+ require "bundle/dsl"
++require "bundle/shared_examples/inventory"
+ require "bundle/extensions/winget"
+ require "bundle/skipper"
+ 
+ RSpec.describe Homebrew::Bundle::Winget do
++  describe "checked Windows bridge" do
++    let(:powershell) { mktmpdir/"powershell.exe" }
++    let(:export_file) { mktmpdir/"export.json" }
++    let(:inventory_output) { '{"Sources":[{"Packages":[{"PackageIdentifier":"Example.App"}]}]}' }
++
++    def write_inventory(output: "", status: 0)
++      powershell.write <<~SH
++        #!/bin/sh
++        printf '%s' #{output.shellescape} > "$EXAMPLE_WINGET_EXPORT"
++        printf '%s\\n' 'native inventory diagnostic' >&2
++        exit #{status}
++      SH
++      powershell.chmod 0755
++    end
++
++    before do
++      described_class.reset!
++      ENV["EXAMPLE_WINGET_EXPORT"] = export_file.to_s
++      write_inventory(output: inventory_output)
++      allow(described_class).to receive(:package_manager_executable).and_return(Pathname("C:/WinGet/winget.exe"))
++      allow(described_class).to receive(:which).and_call_original
++      allow(described_class).to receive(:which).with("powershell.exe", ORIGINAL_PATHS).and_return(powershell)
++      allow(described_class).to receive(:inventory_windows_path).and_call_original
++      allow(described_class).to receive(:inventory_windows_path).with(export_file.to_s).and_return("C:/export.json")
++      allow(Tempfile).to receive(:create).with(["brew-bundle-winget", ".json"])
++                                         .and_yield(instance_double(File, path: export_file.to_s))
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    it_behaves_like "a failed inventory dump"
++
++    it "does not cache a failed bridge and retries without reset" do
++      write_inventory(output: inventory_output, status: 1)
++      expect { described_class.apps }.to raise_error(ErrorDuringExecution)
++      write_inventory(output: inventory_output)
++      expect(described_class.apps.map(&:id)).to eq(["Example.App", "Example.App"])
++    end
++
++    it "skips name listing for empty exports" do
++      write_inventory(output: '{"Sources":[]}')
++      expect(described_class).not_to receive(:listed_app_names)
++      expect(described_class.apps).to eq([])
++    end
++
++    it "caches successful empty exports" do
++      write_inventory(output: '{"Sources":[]}')
++      described_class.apps
++      write_inventory(status: 1)
++      expect(described_class.apps).to eq([])
++    end
++
++    it "does not cache a partially completed pair of sources" do
++      allow(described_class).to receive(:listed_app_names).and_return({})
++      allow(described_class).to receive(:exported_apps).and_call_original
++      allow(described_class).to receive(:exported_apps).with(anything, source: "msstore")
++                                                       .and_raise("second source unavailable")
++      expect { described_class.apps }.to raise_error(/second source unavailable/)
++      allow(described_class).to receive(:exported_apps).with(anything, source: "msstore").and_return([])
++      expect(described_class.apps.map(&:id)).to eq(["Example.App"])
++    end
++
++    it "uses checked PowerShell execution and preserves quoted literal arguments" do
++      expect(SystemCommand).to receive(:run!).with(
++        powershell,
++        args:         ["-NoProfile", "-NonInteractive", "-Command",
++                       a_string_including("'Example''s café; $(value)'", "$LASTEXITCODE = $null")],
++        print_stderr: false,
++      ).and_return(instance_double(SystemCommand::Result, stdout: ""))
++      described_class.listed_app_names(Pathname("C:/WinGet/winget.exe"), source: "Example's café; $(value)")
++    end
++  end
++
++  describe "strict inventory path conversion" do
++    it "rejects a missing converter for Linux paths" do
++      allow(described_class).to receive(:which).with("wslpath", ORIGINAL_PATHS).and_return(nil)
++      expect do
++        described_class.exported_apps(Pathname("C:/WinGet/winget.exe"),
++                                      source: "winget")
++      end.to raise_error(/requires wslpath/)
++    end
++
++    it "rejects an empty converted path" do
++      allow(described_class).to receive(:which).with("wslpath", ORIGINAL_PATHS).and_return(Pathname("wslpath"))
++      allow(described_class).to receive(:command_output).and_return("")
++      expect do
++        described_class.exported_apps(Pathname("C:/WinGet/winget.exe"),
++                                      source: "winget")
++      end.to raise_error(/Invalid Windows path/)
++    end
++  end
++
++  describe "export validation" do
++    test_each(["not json", "[]", "{}", '{"Sources":[{}]}',
++               '{"Sources":[{"Packages":[{"PackageIdentifier":1}]}]}']) do |output|
++      it "rejects invalid export #{output}" do
++        expect { described_class.parse_export(output, source: "winget") }
++          .to raise_error(RuntimeError, /Invalid WinGet export/)
++      end
++    end
++  end
++
+   describe "checking" do
+     let(:entry) do
+       Homebrew::Bundle::Dsl::Entry.new(:winget, "PowerToys", id: "XP89DCGQ3K6VLD", source: "msstore")
+@@ -111,9 +216,12 @@ RSpec.describe Homebrew::Bundle::Winget do
+           Homebrew::Bundle::Winget::App.new(id: "Valve.Steam", name: "Valve.Steam", source: "winget"),
+           Homebrew::Bundle::Winget::App.new(id: "Unknown.Package", name: "Unknown.Package", source: "winget"),
+         ])
+-        allow(Utils).to receive(:popen_read)
+-          .with(winget, "list", "--source", "winget", "--accept-source-agreements", "--disable-interactivity",
+-                "--nowarn", err: :close)
++        allow(described_class).to receive(:prepare_inventory_command)
++          .with(winget, args: ["list", "--source", "winget", "--accept-source-agreements", "--disable-interactivity",
++                               "--nowarn"])
++          .and_return([Pathname("powershell.exe"), "list script"])
++        allow(described_class).to receive(:run_inventory_script)
++          .with(Pathname("powershell.exe"), "list script")
+           .and_return(<<~EOS)
+             Name                                       Id                                          Version
+             -----------------------------------------------------------------------------------------------
+@@ -194,7 +302,7 @@ RSpec.describe Homebrew::Bundle::Winget do
+ 
+     context "when app is not installed" do
+       before do
+-        allow(described_class).to receive(:installed_app_records).and_return([])
++        allow(described_class).to receive_messages(installed_app_records: [], export_apps: [])
+       end
+ 
+       it "installs app using its source and ID" do
+diff --git a/docs/Brew-Bundle-and-Brewfile.md b/docs/Brew-Bundle-and-Brewfile.md
+index 0f5232cd35..3a8c49c82e 100644
+--- a/docs/Brew-Bundle-and-Brewfile.md
++++ b/docs/Brew-Bundle-and-Brewfile.md
+@@ -134,6 +134,12 @@ You can do this with `brew bundle dump --global --force` to write to e.g. `~/.Br
+ brew bundle dump --global --force
+ ```
+ 
++If a selected package manager reports a discovery failure, `dump` stops before writing a `Brewfile`, including with `--force`. A failed query does not populate its inventory cache, so correcting the problem allows another attempt without resetting Bundle. A successful empty inventory is still cached. Package managers can report success with incomplete results; Bundle cannot detect every such case.
++
++Go discovery checks environment and executable metadata queries. Recognised non-Go files are excluded, but Go's format diagnostics cannot distinguish every corrupt executable from a non-Go file. npm accepts structured `ELSPROBLEMS` listings of installed packages and valid `outdated` results with exit status 1; other failed or invalid JSON results stop discovery.
++
++WinGet inventory in WSL requires Windows PowerShell 5.1 (`powershell.exe`) and `wslpath` to convert Linux paths. Bundle checks the full Windows exit code before it crosses the WSL process boundary. Export alone accepts WinGet's exact no-applications result; other reported failures stop discovery. WinGet may downgrade source failures to warnings, which Bundle cannot reliably distinguish from a complete successful export.
++
+ By default, the generated `Brewfile` also contains descriptions of each of the packages:
+ 
+ ```console

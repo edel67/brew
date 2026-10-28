@@ -1,0 +1,91 @@
+name: One-off extension WSL2 validation
+on:
+  push:
+    branches: [extension-wsl2-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'edel67/brew'
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Windows prerequisites and native fixture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsVersion | Format-List | Out-File evidence/windows.txt
+          $PSVersionTable | Out-String | Add-Content evidence/windows.txt
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'PowerShell 5.1 required' }
+          $root = Join-Path $env:RUNNER_TEMP "Example's café"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          Add-Type -TypeDefinition (Get-Content .github/wsl2-validation/fixture.cs -Raw -Encoding UTF8) -Language CSharp -OutputAssembly (Join-Path $root 'fixture.exe') -OutputType ConsoleApplication
+          $root | Set-Content evidence/fixture-path.txt -Encoding UTF8
+          if (!(Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Force | Out-Null
+            Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery -Scope CurrentUser | Out-Null
+            Repair-WinGetPackageManager -Force -Latest
+          }
+          winget.exe --version | Tee-Object evidence/winget-version.txt
+          if ($LASTEXITCODE -ne 0) { throw 'WinGet unavailable' }
+      - uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 2
+          wsl-shell-user: brewtest
+          use-cache: false
+          additional-packages: curl git build-essential file python3 libssl-dev libyaml-dev zlib1g-dev libffi-dev
+      - name: Verify WSL2 and stage exact candidate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $state = (wsl.exe --list --verbose | Out-String).Replace([string][char]0,'')
+          $state | Set-Content evidence/wsl.txt
+          if ($state -notmatch 'Ubuntu-24.04\s+\S+\s+2') { throw "WSL2 required: $state" }
+          wsl.exe --version | Out-File evidence/wsl-version.txt
+      - name: Production adapter and regression tests through WSL2
+        shell: wsl-bash {0}
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_ANALYTICS: 1
+          HOMEBREW_NO_BOOTSNAP: 1
+          HOMEBREW_DEVELOPER: 1
+        run: |
+          set -euo pipefail
+          WSL_WORKSPACE="$PWD"
+          export HOME="/home/brewtest"
+          WSL_FIXTURE="$(wslpath -u "$(tr -d '\r\n' < evidence/fixture-path.txt | sed 's/^\xEF\xBB\xBF//')")"
+          uname -a | tee "$WSL_WORKSPACE/evidence/kernel.txt"
+          uname -r | grep -qi 'microsoft.*WSL2'
+          mkdir -p "$HOME/brew"
+          git -c safe.directory="$WSL_WORKSPACE" -C "$WSL_WORKSPACE" archive HEAD | tar -x -C "$HOME/brew"
+          cd "$HOME/brew"
+          git init -q
+          git config remote.origin.url https://github.com/Homebrew/brew
+          git apply .github/wsl2-validation/candidate.patch
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          manifest=json.load(open('.github/wsl2-validation/manifest.json'))
+          for entry in manifest['files']:
+              assert hashlib.sha256(pathlib.Path(entry['path']).read_bytes()).hexdigest()==entry['sha256'], entry['path']
+          assert hashlib.sha256(json.dumps(manifest['files'],sort_keys=True,separators=(',',':')).encode()).hexdigest()==manifest['sha256']
+          print('Verified all 21 candidate files:',manifest['sha256'])
+          PY
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_BOOTSNAP=1 HOMEBREW_DEVELOPER=1
+          ./bin/brew tests --only=bundle/cargo,bundle/krew,bundle/go,bundle/npm,bundle/vscode_extension,bundle/winget --no-parallel 2>&1 | tee "$WSL_WORKSPACE/evidence/affected-specs.txt"
+          ./bin/brew ruby -- .github/wsl2-validation/native.rb "$WSL_FIXTURE" 2>&1 | tee "$WSL_WORKSPACE/evidence/native.txt"
+          ./bin/brew ruby -- -v | tee "$WSL_WORKSPACE/evidence/ruby.txt"
+          cp .github/wsl2-validation/manifest.json "$WSL_WORKSPACE/evidence/candidate.json"
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: extension-wsl2-validation
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
