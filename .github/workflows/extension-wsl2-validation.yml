@@ -33,7 +33,7 @@ jobs:
           }
           winget.exe --version | Tee-Object evidence/winget-version.txt
           if ($LASTEXITCODE -ne 0) { throw 'WinGet unavailable' }
-          & .github/wsl2-validation/native-status.ps1 -FixtureRoot $root
+          . .github/wsl2-validation/native-status.ps1 -FixtureRoot $root
       - uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
         with:
           distribution: Ubuntu-24.04

@@ -5,7 +5,7 @@ $results = @()
 $LASTEXITCODE = $null
 winget.exe --version | Out-Null
 $status = $LASTEXITCODE
-if ($status -isnot [int] -or $status -ne 0) { throw 'Unexpected real WinGet status/type' }
+if ($status -isnot [int] -or $status -ne 0) { throw ("Unexpected real WinGet status/type: value={0}; type={1}; global={2}" -f $status, $(if ($null -eq $status) {'null'} else {$status.GetType().FullName}), $global:LASTEXITCODE) }
 $results += @{ command='winget --version'; type=$status.GetType().FullName; status=$status }
 foreach ($hex in @('00000000','00000001','7FFFFFFF','80000000','8A150014','80070000','DEAD0014','FFFFFFFF')) {
   [IO.File]::WriteAllText((Join-Path $FixtureRoot 'config.txt'), "list:winget=$hex`n")
