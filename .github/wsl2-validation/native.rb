@@ -5,6 +5,7 @@ require "bundle"
 require "bundle/extensions/winget"
 require "json"
 require "tmpdir"
+require "fileutils"
 require "bundle/dumper"
 require "stringio"
 
@@ -180,6 +181,53 @@ check.call("native second-source failure preserves forced Brewfile and stdout") 
       raise "Printed partial inventory" unless $stdout.string.empty?
     ensure
       $stdout = previous_stdout
+    end
+  end
+end
+original_quote = winget.method(:powershell_quote)
+["'", "\u2018", "\u2019", "\u201A", "\u201B"].each do |quote|
+  quoted_root = root/"Example#{quote}s; $(Write-Output quote-evaluated)"
+  quoted_root.mkpath
+  quoted_fixture = quoted_root/"fixture.exe"
+  FileUtils.cp(fixture, quoted_fixture)
+  (quoted_root/"config.txt").write("")
+  (quoted_root/"calls.txt").write("")
+  Dir.mktmpdir("Example#{quote}s; $(Write-Output quote-evaluated)") do |directory|
+    original_create = Tempfile.method(:create)
+    Tempfile.define_singleton_method(:create) do |basename, &block|
+      original_create.call(basename, directory) { |file| block.call(file) }
+    end
+    begin
+      unless quote == "'"
+        check.call("U+#{quote.ord.to_s(16).upcase}: original quoting fails native discovery") do
+          winget.define_singleton_method(:powershell_quote) { |value| "'#{value.gsub("'", "''")}'" }
+          begin
+            failure.call { winget.exported_apps(quoted_fixture, source: "winget") }
+          ensure
+            winget.define_singleton_method(:powershell_quote, original_quote)
+          end
+        end
+      end
+      check.call("U+#{quote.ord.to_s(16).upcase}: literal executable and ordinary export paths") do
+        apps = winget.exported_apps(quoted_fixture, source: "winget")
+        raise apps.inspect unless apps.map(&:id) == ["Example.App"]
+        names = winget.listed_app_names(quoted_fixture, source: "winget")
+        raise names.inspect unless names == { "example.app" => "Example café" }
+      end
+      check.call("U+#{quote.ord.to_s(16).upcase}: literal canonical-empty export path") do
+        (quoted_root/"config.txt").write("export:winget=8A150014\n")
+        Tempfile.define_singleton_method(:create) do |basename, &block|
+          original_create.call(basename, directory) do |file|
+            value = block.call(file)
+            raise "Noncanonical bytes" unless File.binread(file.path) == '{"Sources":[]}'
+            value
+          end
+        end
+        raise "Expected empty source" unless winget.exported_apps(quoted_fixture, source: "winget").empty?
+      end
+    ensure
+      Tempfile.define_singleton_method(:create, original_create)
+      winget.define_singleton_method(:powershell_quote, original_quote)
     end
   end
 end

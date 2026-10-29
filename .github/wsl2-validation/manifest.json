@@ -1,7 +1,6 @@
 {
-  "candidate": "EX-I17",
+  "candidate": "EX-I18",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
-  "sha256": "81fa15189962255421911bb9576712bf69efb7ee6a4369156d00a22ba6c109dd",
   "files": [
     {
       "path": "Library/Homebrew/bundle/extensions/cargo.rb",
@@ -17,7 +16,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/go.rb",
-      "sha256": "fd754ca45886d4fdfe3b3df50b241950f48f67556633656ddb23f7e6c7634c0c"
+      "sha256": "dc2a310c64ee6d6e6a2d9b880830206dbdfa63b3624454880b3ee4c99a282e64"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/krew.rb",
@@ -41,7 +40,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/winget.rb",
-      "sha256": "930ae20310b693495dd390dc08fb243e6d6df8f22a733916648231575d6945b3"
+      "sha256": "659c5881397995efd999f23050e40c31fe0e891b418897936aa01d4a5856508d"
     },
     {
       "path": "Library/Homebrew/test/bundle/cargo_spec.rb",
@@ -81,11 +80,13 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/winget_spec.rb",
-      "sha256": "68cc3f6064de229f23dbec5507e43488d773d63663dbe5dd3102887dabac8fb9"
+      "sha256": "e1547165fdf9e55f00d5baf7befb0348e89786e4c108deeb108fbc00685df86c"
     },
     {
       "path": "docs/Brew-Bundle-and-Brewfile.md",
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
-  ]
+  ],
+  "sha256": "066de4cce2f2be5ea4ebc782693a0ed9c6dba5045102c5eee65d362a592df31f",
+  "hash_scheme": "sha256 of json.dumps(files, sort_keys=True)"
 }

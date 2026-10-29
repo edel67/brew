@@ -104,7 +104,7 @@ index c24315abaf..317532f1ab 100644
              return parts[1] if parts[0] == remote_name
            end
 diff --git a/Library/Homebrew/bundle/extensions/go.rb b/Library/Homebrew/bundle/extensions/go.rb
-index 18debdfdd5..57cec4737e 100644
+index 18debdfdd5..28209cd312 100644
 --- a/Library/Homebrew/bundle/extensions/go.rb
 +++ b/Library/Homebrew/bundle/extensions/go.rb
 @@ -6,6 +6,9 @@ require "bundle/extensions/extension"
@@ -217,7 +217,7 @@ index 18debdfdd5..57cec4737e 100644
  
          sig {
            override.params(
-@@ -103,22 +127,9 @@ module Homebrew
+@@ -103,23 +127,10 @@ module Homebrew
              return
            end
  
@@ -237,11 +237,13 @@ index 18debdfdd5..57cec4737e 100644
 -            next unless path_line
 -
 -            module_path = path_line.split("\t")[2]&.strip
+-            next unless items.include?(module_path)
 +          # Finish discovery before deleting anything so an inspection failure cannot leave partial cleanup.
-+          discovered_binaries(go).each do |binary, module_path|
-             next unless items.include?(module_path)
++          discovered_binaries(go).each do |binary, package_path|
++            next unless items.include?(package_path)
  
              begin
+               File.unlink(binary)
 diff --git a/Library/Homebrew/bundle/extensions/krew.rb b/Library/Homebrew/bundle/extensions/krew.rb
 index fc143621fa..89e9da88a7 100644
 --- a/Library/Homebrew/bundle/extensions/krew.rb
@@ -434,7 +436,7 @@ index f4b7c286ba..b1cdc7d699 100644
            return [] if @extensions.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
-index 0a0b1ffd19..e29c9011a1 100644
+index 0a0b1ffd19..53ba336dea 100644
 --- a/Library/Homebrew/bundle/extensions/winget.rb
 +++ b/Library/Homebrew/bundle/extensions/winget.rb
 @@ -44,6 +44,9 @@ module Homebrew
@@ -606,6 +608,15 @@ index 0a0b1ffd19..e29c9011a1 100644
          end
  
          sig { override.returns(T::Array[App]) }
+@@ -464,7 +532,7 @@ module Homebrew
+ 
+         sig { params(value: String).returns(String) }
+         def powershell_quote(value)
+-          "'#{value.gsub("'", "''")}'"
++          "'#{value.gsub(/['\u2018-\u201B]/) { |quote| quote * 2 }}'"
+         end
+ 
+         sig { params(output: String).returns(T::Boolean) }
 diff --git a/Library/Homebrew/test/bundle/cargo_spec.rb b/Library/Homebrew/test/bundle/cargo_spec.rb
 index 902d03f7f0..ea41cfe3b1 100644
 --- a/Library/Homebrew/test/bundle/cargo_spec.rb
@@ -1858,7 +1869,7 @@ index e3ee45468d..c6589557f3 100644
  
          expect(dumper.extensions).to eql(["github.codespaces"])
 diff --git a/Library/Homebrew/test/bundle/winget_spec.rb b/Library/Homebrew/test/bundle/winget_spec.rb
-index 545a123352..a49840ac34 100644
+index 545a123352..b90de53c4d 100644
 --- a/Library/Homebrew/test/bundle/winget_spec.rb
 +++ b/Library/Homebrew/test/bundle/winget_spec.rb
 @@ -3,10 +3,115 @@
@@ -1938,10 +1949,10 @@ index 545a123352..a49840ac34 100644
 +      expect(SystemCommand).to receive(:run!).with(
 +        powershell,
 +        args:         ["-NoProfile", "-NonInteractive", "-Command",
-+                       a_string_including("'Example''s café; $(value)'", "$LASTEXITCODE = $null")],
++                       a_string_including("'Example''s ‘‘café’’ ‚‚‛‛; $(value)'", "$LASTEXITCODE = $null")],
 +        print_stderr: false,
 +      ).and_return(instance_double(SystemCommand::Result, stdout: ""))
-+      described_class.listed_app_names(Pathname("C:/WinGet/winget.exe"), source: "Example's café; $(value)")
++      described_class.listed_app_names(Pathname("C:/WinGet/winget.exe"), source: "Example's ‘café’ ‚‛; $(value)")
 +    end
 +  end
 +
