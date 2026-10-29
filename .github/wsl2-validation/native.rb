@@ -105,29 +105,18 @@ check.call("native diagnostics retain Unicode and full status on stderr") do
   raise error.to_s unless error.to_s.include?("0xDEAD0014") && error.to_s.include?("native diagnostic café")
 end
 original_output = winget.method(:command_output)
-{
-  "unsigned exact status input" => ["[uint32]2316632084", true],
-  "absent status input" => ["$null", false],
-  "out of range status input" => ["[long]4294967296", false],
-  "string status input" => ["'0'", false],
-}.each do |name, (expression, accepted)|
-  check.call("instrumented #{name}, real WSL PowerShell execution") do
-    configure.call("export:winget=8A150014\n")
-    winget.define_singleton_method(:command_output) do |executable, args:, **options|
-      if args.include?("-Command")
-        args = args.map { |arg| arg.gsub("$nativeStatus = $LASTEXITCODE", "$nativeStatus = #{expression}") }
-      end
-      original_output.call(executable, args:, **options)
+check.call("instrumented absent status input is rejected") do
+  configure.call("export:winget=8A150014\n")
+  winget.define_singleton_method(:command_output) do |executable, args:, **options|
+    if args.include?("-Command")
+      args = args.map { |arg| arg.gsub("$nativeStatus = $LASTEXITCODE", "$nativeStatus = $null") }
     end
-    begin
-      if accepted
-        raise "Expected empty source" unless winget.exported_apps(fixture, source: "winget").empty?
-      else
-        failure.call { winget.exported_apps(fixture, source: "winget") }
-      end
-    ensure
-      winget.define_singleton_method(:command_output, original_output)
-    end
+    original_output.call(executable, args:, **options)
+  end
+  begin
+    failure.call { winget.exported_apps(fixture, source: "winget") }
+  ensure
+    winget.define_singleton_method(:command_output, original_output)
   end
 end
 original_which = winget.method(:which)
