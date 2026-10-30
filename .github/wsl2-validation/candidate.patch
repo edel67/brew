@@ -436,7 +436,7 @@ index f4b7c286ba..b1cdc7d699 100644
            return [] if @extensions.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
-index 0a0b1ffd19..53ba336dea 100644
+index 0a0b1ffd19..dec36db19c 100644
 --- a/Library/Homebrew/bundle/extensions/winget.rb
 +++ b/Library/Homebrew/bundle/extensions/winget.rb
 @@ -44,6 +44,9 @@ module Homebrew
@@ -510,7 +510,7 @@ index 0a0b1ffd19..53ba336dea 100644
            header_index = lines.index { |line| line.match?(/\bName\s+Id\s+Version\b/) }
            return {} if header_index.nil?
  
-@@ -212,31 +229,82 @@ module Homebrew
+@@ -212,31 +229,93 @@ module Homebrew
            path
          end
  
@@ -520,54 +520,65 @@ index 0a0b1ffd19..53ba336dea 100644
 -          return [] unless export.is_a?(Hash)
 +        sig { params(path: String).returns(String) }
 +        def inventory_windows_path(path)
-+          windows_absolute = %r{\A(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)}
-+          return path if windows_absolute.match?(path)
++          return path if absolute_windows_path?(path)
 +          raise "Invalid WinGet inventory path: #{path}" unless path.start_with?("/")
 +
 +          wslpath = which("wslpath", ORIGINAL_PATHS)
 +          raise "WinGet inventory requires wslpath for Windows path conversion" if wslpath.nil?
 +
 +          converted = command_output(wslpath, args: ["-w", path]).chomp
-+          raise "Invalid Windows path from wslpath" unless windows_absolute.match?(converted)
++          raise "Invalid Windows path from wslpath" unless absolute_windows_path?(converted)
 +
 +          converted
 +        end
 +        private :inventory_windows_path
++
++        sig { params(path: String).returns(T::Boolean) }
++        def absolute_windows_path?(path)
++          path_with_forward_slashes = path.tr("\\", "/")
++          return true if path_with_forward_slashes.match?(%r{\A[A-Za-z]:/})
++
++          # Check the original prefix so Linux paths beginning with // still require conversion.
++          return false unless path.start_with?("\\\\")
++
++          path_with_forward_slashes.match?(%r{\A//[^/]+/[^/]+})
++        end
++        private :absolute_windows_path?
 +
 +        sig { params(winget: Pathname, args: T::Array[String]).returns([Pathname, String]) }
 +        def prepare_inventory_command(winget, args:)
 +          powershell = which("powershell.exe", ORIGINAL_PATHS) ||
 +                       Pathname.new("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
 +          raise "WinGet inventory requires Windows PowerShell 5.1 (powershell.exe)" unless powershell.executable?
-+
+ 
+-          sources = export["Sources"]
+-          return [] unless sources.is_a?(Array)
 +          script = <<~POWERSHELL
 +            trap { [Console]::Error.WriteLine($_); exit 1 }
 +            [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 +            $OutputEncoding = [Console]::OutputEncoding
-+
+ 
+-          sources.flat_map do |source_export|
+-            next [] unless source_export.is_a?(Hash)
 +            $LASTEXITCODE = $null
 +            & #{powershell_quote(inventory_windows_path(winget.to_s))} #{args.map { |arg| powershell_quote(arg) }.join(" ")}
 +            $nativeStatus = $LASTEXITCODE
-+
+ 
+-            packages = source_export["Packages"]
+-            next [] unless packages.is_a?(Array)
 +            if ($nativeStatus -isnot [int]) {
 +              [Console]::Error.WriteLine('WinGet did not return a valid native exit status')
 +              exit 1
 +            }
- 
--          sources = export["Sources"]
--          return [] unless sources.is_a?(Array)
++
 +            $nativeCode = [long]$nativeStatus -band 4294967295L
 +            if ($nativeCode -eq 0) { exit 0 }
 +          POWERSHELL
- 
--          sources.flat_map do |source_export|
--            next [] unless source_export.is_a?(Hash)
++
 +          [powershell, script]
 +        end
 +        private :prepare_inventory_command
- 
--            packages = source_export["Packages"]
--            next [] unless packages.is_a?(Array)
++
 +        sig { params(powershell: Pathname, script: String).returns(String) }
 +        def run_inventory_script(powershell, script)
 +          script += <<~POWERSHELL
@@ -608,7 +619,7 @@ index 0a0b1ffd19..53ba336dea 100644
          end
  
          sig { override.returns(T::Array[App]) }
-@@ -464,7 +532,7 @@ module Homebrew
+@@ -464,7 +543,7 @@ module Homebrew
  
          sig { params(value: String).returns(String) }
          def powershell_quote(value)

@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I18",
+  "candidate": "EX-I19",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -40,7 +40,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/winget.rb",
-      "sha256": "659c5881397995efd999f23050e40c31fe0e891b418897936aa01d4a5856508d"
+      "sha256": "8acf43b801629b77f5579bb37b811cb0f4c3e84155d5bd05a5f1f609055fde3d"
     },
     {
       "path": "Library/Homebrew/test/bundle/cargo_spec.rb",
@@ -87,6 +87,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "066de4cce2f2be5ea4ebc782693a0ed9c6dba5045102c5eee65d362a592df31f",
+  "sha256": "3636f7d5e5d540906c063097be8b0cd2a701c1ee4224bc2dd4528110d8ea1799",
   "hash_scheme": "sha256 of json.dumps(files, sort_keys=True)"
 }
