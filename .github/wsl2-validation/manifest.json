@@ -1,10 +1,10 @@
 {
-  "candidate": "EX-I21",
+  "candidate": "EX-I23",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
       "path": "Library/Homebrew/bundle/extensions/cargo.rb",
-      "sha256": "e10f078b55675fd7583a9acf9e7bf7fdd2ed53d1fca912fad4abcd20d36a6f9b"
+      "sha256": "815d95df9a86a000e03edec6d0365b1127d9b2c8939be6083059212254a6734e"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/extension.rb",
@@ -12,7 +12,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/flatpak.rb",
-      "sha256": "920030796a81c297eb9d4715c535b40aa0a5b825217966ebc14a8c901dcfb6bd"
+      "sha256": "1cc6974f92d4cbea0ed7332c313e398816780baa6790183905f270bc3d870196"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/go.rb",
@@ -52,7 +52,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/go_spec.rb",
-      "sha256": "22e2df3bdfd50ab2fd4803803c56cd154fa78c959ba0be7c2c4b8a8bf23d9e64"
+      "sha256": "b331c3564e8b2ec014e983f0e2af5bcffe6adf29f982ea76a4432834837975b8"
     },
     {
       "path": "Library/Homebrew/test/bundle/krew_spec.rb",
@@ -64,7 +64,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/npm_spec.rb",
-      "sha256": "3a05a91fa1ce8bf72c9efa18b59b57124001cccabdd2040e36282920d5b82799"
+      "sha256": "5edd1cb7c277d50baea2f06ef1c3aa392369e88a059eae2a7246f7d6d25f4e50"
     },
     {
       "path": "Library/Homebrew/test/bundle/shared_examples/inventory.rb",
@@ -87,6 +87,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "44c80493447dd6f45569b539e337f3f69e5bf70443b40dee13ad58fbd92c680a",
+  "sha256": "42cf25b67112daf5a099f9496291718a3dcb4ec7d551e224095330b0512557be",
   "hash_scheme": "sha256(json.dumps(files, sort_keys=True).encode()) with default separators"
 }

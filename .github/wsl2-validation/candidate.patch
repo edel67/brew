@@ -1,5 +1,5 @@
 diff --git a/Library/Homebrew/bundle/extensions/cargo.rb b/Library/Homebrew/bundle/extensions/cargo.rb
-index 5ae02bf221..e06a734525 100644
+index 5ae02bf221..d53d1ec5a7 100644
 --- a/Library/Homebrew/bundle/extensions/cargo.rb
 +++ b/Library/Homebrew/bundle/extensions/cargo.rb
 @@ -104,7 +104,7 @@ module Homebrew
@@ -11,15 +11,17 @@ index 5ae02bf221..e06a734525 100644
              end
            end
            return [] if @packages.nil?
-@@ -270,7 +270,7 @@ module Homebrew
+@@ -270,9 +270,7 @@ module Homebrew
  
          sig { params(output: String).returns(T::Array[Crate]) }
          def parse_package_list(output)
 -          output.lines.filter_map do |line|
+-            next if line.match?(/^\s/)
+-
 +          output.each_line.filter_map do |line|
-             next if line.match?(/^\s/)
- 
              match = line.match(PACKAGE_LIST_REGEX)
+             next if match.nil?
+ 
 diff --git a/Library/Homebrew/bundle/extensions/extension.rb b/Library/Homebrew/bundle/extensions/extension.rb
 index 2cd1d75b20..5caa43ad65 100644
 --- a/Library/Homebrew/bundle/extensions/extension.rb
@@ -44,7 +46,7 @@ index 2cd1d75b20..5caa43ad65 100644
        def self.banner_name; end
  
 diff --git a/Library/Homebrew/bundle/extensions/flatpak.rb b/Library/Homebrew/bundle/extensions/flatpak.rb
-index c24315abaf..0ac593d1e1 100644
+index c24315abaf..95ccb75124 100644
 --- a/Library/Homebrew/bundle/extensions/flatpak.rb
 +++ b/Library/Homebrew/bundle/extensions/flatpak.rb
 @@ -97,15 +97,10 @@ module Homebrew
@@ -65,7 +67,7 @@ index c24315abaf..0ac593d1e1 100644
                urls[name] = url if name && url
              end
              urls
-@@ -124,15 +119,13 @@ module Homebrew
+@@ -124,21 +119,16 @@ module Homebrew
              # List applications with their origin remote
              # Using --app to filter applications only
              # Using --columns=application,origin to get app IDs and their remotes
@@ -77,15 +79,24 @@ index c24315abaf..0ac593d1e1 100644
 -              parts = line.strip.split("\t")
 -              name = parts[0]
 -              next if parts.empty? || name.nil? || name.empty?
+-
+-              remote = parts[1] || "flathub"
+-              package = T.let({ name:, remote:, remote_url: T.let(nil, T.nilable(String)) }, Package)
+-              remote_url = remote_urls[remote]
+-              package[:remote_url] = remote_url
+-              package
 +              name, remote = line.strip.split("\t")
 +              next if name.nil?
- 
--              remote = parts[1] || "flathub"
++
 +              remote ||= "flathub"
-               package = T.let({ name:, remote:, remote_url: T.let(nil, T.nilable(String)) }, Package)
-               remote_url = remote_urls[remote]
-               package[:remote_url] = remote_url
-@@ -295,10 +288,9 @@ module Homebrew
++              { name:, remote:, remote_url: remote_urls[remote] }
+             end
+-            packages.sort_by { |pkg| pkg[:name].to_s }
++            packages.sort_by { |pkg| pkg[:name] }
+           end
+           return [] if @packages_with_remotes.nil?
+ 
+@@ -295,10 +285,9 @@ module Homebrew
            return false unless Bundle.system(flatpak, "install", "-y", "--system", url, verbose:)
  
            # Get the actual remote name used by Flatpak
@@ -99,7 +110,7 @@ index c24315abaf..0ac593d1e1 100644
            actual_remote ||= "#{name}-origin"
            package = { name:, remote: actual_remote, remote_url: nil }
            packages_with_remotes = T.let(@packages_with_remotes || [], T::Array[Package])
-@@ -307,6 +299,11 @@ module Homebrew
+@@ -307,6 +296,11 @@ module Homebrew
            @installed_packages = packages_with_remotes.dup
            @packages = packages_with_remotes.map { |pkg| pkg[:name] }
            true
@@ -111,7 +122,7 @@ index c24315abaf..0ac593d1e1 100644
          end
  
          # Generate a single-app remote name (Tier 2)
-@@ -356,11 +353,10 @@ module Homebrew
+@@ -356,11 +350,10 @@ module Homebrew
          # Get URL for an existing remote, or nil if not found
          sig { params(flatpak: String, remote_name: String).returns(T.nilable(String)) }
          def get_remote_url(flatpak, remote_name)
@@ -944,7 +955,7 @@ index b431fc751b..82772d05fa 100644
  
              expect(Homebrew::Bundle).to \
 diff --git a/Library/Homebrew/test/bundle/go_spec.rb b/Library/Homebrew/test/bundle/go_spec.rb
-index c0828dbb1d..50b857f5f2 100644
+index c0828dbb1d..913f4e5a37 100644
 --- a/Library/Homebrew/test/bundle/go_spec.rb
 +++ b/Library/Homebrew/test/bundle/go_spec.rb
 @@ -3,9 +3,181 @@
@@ -1129,21 +1140,21 @@ index c0828dbb1d..50b857f5f2 100644
    describe "dumping" do
      subject(:dumper) { described_class }
  
-@@ -29,16 +201,22 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -29,16 +201,21 @@ RSpec.describe Homebrew::Bundle::Go do
  
        it "returns package list" do
          allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
 -        allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOBIN", err: :err).and_return("")
 -        allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOPATH",
 -                                                  err: :err).and_return("/Users/test/go")
+-        allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
+-        allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return(["/Users/test/go/bin/crush"])
 +        allow(described_class).to receive(:command_output)
 +          .with(Pathname("go"), args:         ["env", "GOBIN"],
 +                                print_stderr: true).and_return("")
 +        allow(described_class).to receive(:command_output)
 +          .with(Pathname("go"), args:         ["env", "GOPATH"],
 +                                print_stderr: true).and_return("/Users/test/go")
-         allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
--        allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return(["/Users/test/go/bin/crush"])
 +        allow(Dir).to receive(:children).with("/Users/test/go/bin").and_return(["crush"])
          allow(File).to receive(:executable?).with("/Users/test/go/bin/crush").and_return(true)
          allow(File).to receive(:directory?).with("/Users/test/go/bin/crush").and_return(false)
@@ -1159,20 +1170,20 @@ index c0828dbb1d..50b857f5f2 100644
          expect(dumper.packages).to eql(["github.com/charmbracelet/crush"])
        end
  
-@@ -158,15 +336,21 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -158,15 +335,20 @@ RSpec.describe Homebrew::Bundle::Go do
        binary = "/Users/test/go/bin/cr;ush $(touch pwned)"
        allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
        allow(described_class).to receive(:puts)
 -      allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOBIN", err: :err).and_return("")
 -      allow(Utils).to receive(:popen_read).with(Pathname("go"), "env", "GOPATH", err: :err)
 -                                          .and_return("/Users/test/go")
+-      allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
+-      allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return([binary])
 +      allow(described_class).to receive(:command_output).with(Pathname("go"), args:         ["env", "GOBIN"],
 +                                                                              print_stderr: true).and_return("")
 +      allow(described_class).to receive(:command_output).with(Pathname("go"), args:         ["env", "GOPATH"],
 +                                                                              print_stderr: true)
 +                                                        .and_return("/Users/test/go")
-       allow(File).to receive(:directory?).with("/Users/test/go/bin").and_return(true)
--      allow(Dir).to receive(:glob).with("/Users/test/go/bin/*").and_return([binary])
 +      allow(Dir).to receive(:children).with("/Users/test/go/bin").and_return([File.basename(binary)])
        allow(File).to receive(:executable?).with(binary).and_return(true)
        allow(File).to receive(:directory?).with(binary).and_return(false)
@@ -1187,7 +1198,7 @@ index c0828dbb1d..50b857f5f2 100644
  
        expect(File).to receive(:unlink).with(binary)
  
-@@ -178,19 +362,24 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -178,19 +360,23 @@ RSpec.describe Homebrew::Bundle::Go do
  
        before do
          Homebrew.failed = false
@@ -1195,12 +1206,12 @@ index c0828dbb1d..50b857f5f2 100644
 -          .with(Pathname("go"), "env", "GOBIN", err: :err).and_return("/tmp/go/bin")
 -        allow(Utils).to receive(:popen_read)
 -          .with(Pathname("go"), "env", "GOPATH", err: :err).and_return("/tmp/go")
+-        allow(File).to receive(:directory?).with("/tmp/go/bin").and_return(true)
+-        allow(Dir).to receive(:glob).with("/tmp/go/bin/*").and_return(executables)
 +        allow(described_class).to receive(:command_output)
 +          .with(Pathname("go"), args: ["env", "GOBIN"], print_stderr: true).and_return("/tmp/go/bin")
 +        allow(described_class).to receive(:command_output)
 +          .with(Pathname("go"), args: ["env", "GOPATH"], print_stderr: true).and_return("/tmp/go")
-         allow(File).to receive(:directory?).with("/tmp/go/bin").and_return(true)
--        allow(Dir).to receive(:glob).with("/tmp/go/bin/*").and_return(executables)
 +        allow(Dir).to receive(:children).with("/tmp/go/bin").and_return(executables.map { |file|
 +          File.basename(file)
 +        })
@@ -1465,10 +1476,10 @@ index 8fc17d327c..8f790f770b 100644
  
          it "installs app" do
 diff --git a/Library/Homebrew/test/bundle/npm_spec.rb b/Library/Homebrew/test/bundle/npm_spec.rb
-index 30c9c5d995..7065eff113 100644
+index 30c9c5d995..5ad58f5775 100644
 --- a/Library/Homebrew/test/bundle/npm_spec.rb
 +++ b/Library/Homebrew/test/bundle/npm_spec.rb
-@@ -3,11 +3,93 @@
+@@ -3,11 +3,92 @@
  
  require "bundle"
  require "bundle/dsl"
@@ -1489,7 +1500,6 @@ index 30c9c5d995..7065eff113 100644
 +
 +    before do
 +      described_class.reset!
-+      npm.chmod 0755 if npm.exist?
 +      allow(described_class).to receive(:package_manager_executable).and_return(npm)
 +    end
 +
@@ -1562,7 +1572,7 @@ index 30c9c5d995..7065eff113 100644
    describe "dumping" do
      subject(:dumper) { described_class }
  
-@@ -24,15 +106,13 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -24,15 +105,13 @@ RSpec.describe Homebrew::Bundle::Npm do
      end
  
      context "when npm is installed" do
@@ -1579,7 +1589,7 @@ index 30c9c5d995..7065eff113 100644
            {
              "dependencies": {
                "npm": { "version": "11.11.0" },
-@@ -51,17 +131,17 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -51,17 +130,17 @@ RSpec.describe Homebrew::Bundle::Npm do
          npm.write("")
  
          allow(described_class).to receive(:package_manager_executable).and_return(npm)
@@ -1601,7 +1611,7 @@ index 30c9c5d995..7065eff113 100644
            {
              "dependencies": {
                "npm": { "version": "11.11.0" }
-@@ -73,15 +153,15 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -73,15 +152,15 @@ RSpec.describe Homebrew::Bundle::Npm do
        end
  
        it "handles invalid JSON" do
@@ -1621,7 +1631,7 @@ index 30c9c5d995..7065eff113 100644
        end
  
        it "dumps package list" do
-@@ -98,29 +178,30 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -98,29 +177,30 @@ RSpec.describe Homebrew::Bundle::Npm do
      end
  
      it "lists outdated packages, including scoped packages, but excludes npm" do
@@ -1663,7 +1673,7 @@ index 30c9c5d995..7065eff113 100644
  
        described_class.outdated_packages
        described_class.outdated_packages
-@@ -128,13 +209,11 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -128,13 +208,11 @@ RSpec.describe Homebrew::Bundle::Npm do
        described_class.outdated_packages
      end
  
