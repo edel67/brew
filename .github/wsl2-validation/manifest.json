@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I19",
+  "candidate": "EX-I20",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/flatpak.rb",
-      "sha256": "32d1b5897997b952689f64efa72b7a98fcee23d8ebb6f330a0fd38ae921b9b99"
+      "sha256": "58e1e110de70f1f011b3d90acb2234f8f66e29ca9473d4928496b2e3cdf86bfa"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/go.rb",
@@ -44,7 +44,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/cargo_spec.rb",
-      "sha256": "dc4c21edca30bccf72f1cd6c442461267b8571341dd116a6575c90f66e6af52f"
+      "sha256": "83965c5b7c84e16e7e312f60a042ca8616773a712c02fa93f0c69de426e7d31a"
     },
     {
       "path": "Library/Homebrew/test/bundle/flatpak_spec.rb",
@@ -87,6 +87,5 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "3636f7d5e5d540906c063097be8b0cd2a701c1ee4224bc2dd4528110d8ea1799",
-  "hash_scheme": "sha256 of json.dumps(files, sort_keys=True)"
+  "sha256": "21a8652b2e36bcdc412bde3c16d352c729764d28193d41e4a509a5e620633fcb"
 }

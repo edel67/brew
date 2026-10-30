@@ -44,10 +44,10 @@ index 2cd1d75b20..5caa43ad65 100644
        def self.banner_name; end
  
 diff --git a/Library/Homebrew/bundle/extensions/flatpak.rb b/Library/Homebrew/bundle/extensions/flatpak.rb
-index c24315abaf..317532f1ab 100644
+index c24315abaf..a7545b63dc 100644
 --- a/Library/Homebrew/bundle/extensions/flatpak.rb
 +++ b/Library/Homebrew/bundle/extensions/flatpak.rb
-@@ -97,8 +97,7 @@ module Homebrew
+@@ -97,15 +97,10 @@ module Homebrew
            return remote_urls if remote_urls
  
            @remote_urls = if (flatpak = package_manager_executable)
@@ -56,8 +56,16 @@ index c24315abaf..317532f1ab 100644
 +            output = command_output(flatpak, args: ["remote-list", "--system", "--columns=name,url"])
              urls = {}
              output.split("\n").each do |line|
-               parts = line.strip.split("\t")
-@@ -124,8 +123,7 @@ module Homebrew
+-              parts = line.strip.split("\t")
+-              next if parts.size < 2
+-
+-              name = parts[0]
+-              url = parts[1]
++              name, url = line.strip.split("\t")
+               urls[name] = url if name && url
+             end
+             urls
+@@ -124,15 +119,14 @@ module Homebrew
              # List applications with their origin remote
              # Using --app to filter applications only
              # Using --columns=application,origin to get app IDs and their remotes
@@ -66,20 +74,33 @@ index c24315abaf..317532f1ab 100644
 +            output = command_output(flatpak, args: ["list", "--app", "--columns=application,origin"])
  
              packages = output.split("\n").filter_map do |line|
-               parts = line.strip.split("\t")
-@@ -295,9 +293,8 @@ module Homebrew
+-              parts = line.strip.split("\t")
+-              name = parts[0]
+-              next if parts.empty? || name.nil? || name.empty?
++              name, remote = line.strip.split("\t")
++              next if name.nil?
++              next if name.empty?
+ 
+-              remote = parts[1] || "flathub"
++              remote ||= "flathub"
+               package = T.let({ name:, remote:, remote_url: T.let(nil, T.nilable(String)) }, Package)
+               remote_url = remote_urls[remote]
+               package[:remote_url] = remote_url
+@@ -295,10 +289,9 @@ module Homebrew
            return false unless Bundle.system(flatpak, "install", "-y", "--system", url, verbose:)
  
            # Get the actual remote name used by Flatpak
 -          output = Utils.popen_read_text(flatpak, "list", "--app", "--columns=application,origin",
 -                                         err: File::NULL).chomp
 -          installed = output.split("\n").find { |line| line.start_with?(name) }
+-          actual_remote = installed ? installed.split("\t")[1] : "#{name}-origin"
 +          output = command_output(flatpak, args: ["list", "--app", "--columns=application,origin"])
-+          installed = output.each_line(chomp: true).find { |line| line.start_with?(name) }
-           actual_remote = installed ? installed.split("\t")[1] : "#{name}-origin"
++          installed_line = output.each_line(chomp: true).find { |line| line.start_with?(name) }
++          _application, actual_remote = installed_line&.split("\t")
            actual_remote ||= "#{name}-origin"
            package = { name:, remote: actual_remote, remote_url: nil }
-@@ -307,6 +304,11 @@ module Homebrew
+           packages_with_remotes = T.let(@packages_with_remotes || [], T::Array[Package])
+@@ -307,6 +300,11 @@ module Homebrew
            @installed_packages = packages_with_remotes.dup
            @packages = packages_with_remotes.map { |pkg| pkg[:name] }
            true
@@ -91,18 +112,22 @@ index c24315abaf..317532f1ab 100644
          end
  
          # Generate a single-app remote name (Tier 2)
-@@ -356,9 +358,8 @@ module Homebrew
+@@ -356,11 +354,10 @@ module Homebrew
          # Get URL for an existing remote, or nil if not found
          sig { params(flatpak: String, remote_name: String).returns(T.nilable(String)) }
          def get_remote_url(flatpak, remote_name)
 -          output = Utils.popen_read_text(flatpak, "remote-list", "--system", "--columns=name,url",
 -                                         err: File::NULL).chomp
 -          output.split("\n").each do |line|
+-            parts = line.split("\t")
+-            return parts[1] if parts[0] == remote_name
 +          output = command_output(flatpak, args: ["remote-list", "--system", "--columns=name,url"])
 +          output.each_line(chomp: true) do |line|
-             parts = line.split("\t")
-             return parts[1] if parts[0] == remote_name
++            name, url = line.split("\t")
++            return url if name == remote_name
            end
+           nil
+         end
 diff --git a/Library/Homebrew/bundle/extensions/go.rb b/Library/Homebrew/bundle/extensions/go.rb
 index 18debdfdd5..28209cd312 100644
 --- a/Library/Homebrew/bundle/extensions/go.rb
@@ -629,7 +654,7 @@ index 0a0b1ffd19..dec36db19c 100644
  
          sig { params(output: String).returns(T::Boolean) }
 diff --git a/Library/Homebrew/test/bundle/cargo_spec.rb b/Library/Homebrew/test/bundle/cargo_spec.rb
-index 902d03f7f0..ea41cfe3b1 100644
+index 902d03f7f0..dd1644ac46 100644
 --- a/Library/Homebrew/test/bundle/cargo_spec.rb
 +++ b/Library/Homebrew/test/bundle/cargo_spec.rb
 @@ -3,9 +3,13 @@
@@ -661,17 +686,25 @@ index 902d03f7f0..ea41cfe3b1 100644
    describe "entries" do
      it "accepts a source option" do
        entry = described_class.entry("tftio-kb", source: "ssh://git@example.com/tftio/kb.git")
-@@ -140,7 +152,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -132,15 +144,14 @@ RSpec.describe Homebrew::Bundle::Cargo do
+     end
+ 
+     context "when cargo is installed" do
+-      let(:cargo_list_args) { [Pathname("cargo"), "install", "--list"] }
+-
+       before do
+         described_class.reset!
+         allow(described_class).to receive(:package_manager_executable).and_return(Pathname.new("cargo"))
        end
  
        it "returns package list" do
 -        expect(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err) do
-+        expect(described_class).to receive(:command_output).with(cargo_list_args.first,
-+                                                                 args: cargo_list_args.drop(1), print_stderr: true) do
++        expect(described_class).to receive(:command_output)
++          .with(Pathname("cargo"), args: ["install", "--list"], print_stderr: true) do
            expect(ENV.fetch("CARGO_HOME", nil)).to eq("~/.cargo")
            expect(ENV.fetch("CARGO_INSTALL_ROOT", nil)).to eq("~/.cargo/bin")
            expect(ENV.fetch("RUSTUP_HOME", nil)).to eq("~/.rustup")
-@@ -158,7 +171,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -158,7 +169,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "parses a git source and strips the resolved revision" do
@@ -680,7 +713,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git#3492d620):
                kb
          EOS
-@@ -170,7 +183,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -170,7 +181,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "parses an https git source" do
@@ -689,7 +722,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            ripgrep v13.0.0 (https://github.com/BurntSushi/ripgrep#9f0e88bc):
                rg
          EOS
-@@ -179,7 +192,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -179,7 +190,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "keeps a tag selector while stripping the resolved revision" do
@@ -698,7 +731,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git?tag=v4.0.0#3492d620):
                kb
          EOS
-@@ -188,7 +201,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -188,7 +199,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "dumps a crate installed from a local path without a source" do
@@ -707,7 +740,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            bat v0.24.0 (/Users/test/src/bat):
                bat
          EOS
-@@ -197,7 +210,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -197,7 +208,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "dumps a crate installed from a file:// repository without a source" do
@@ -716,7 +749,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            bat v0.24.0 (file:///Users/test/src/bat#3492d620):
                bat
          EOS
-@@ -206,7 +219,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -206,7 +217,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
        end
  
        it "ignores an origin it cannot classify as a source" do
@@ -725,7 +758,7 @@ index 902d03f7f0..ea41cfe3b1 100644
            ripgrep v13.0.0 (registry+sparse):
                rg
          EOS
-@@ -218,7 +231,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -218,7 +229,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
        it "passes metacharacters in cargo's path literally" do
          cargo = Pathname("cargo; touch /tmp/pwned")
          allow(described_class).to receive(:package_manager_executable).and_return(cargo)
