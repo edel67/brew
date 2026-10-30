@@ -44,7 +44,7 @@ index 2cd1d75b20..5caa43ad65 100644
        def self.banner_name; end
  
 diff --git a/Library/Homebrew/bundle/extensions/flatpak.rb b/Library/Homebrew/bundle/extensions/flatpak.rb
-index c24315abaf..a7545b63dc 100644
+index c24315abaf..0ac593d1e1 100644
 --- a/Library/Homebrew/bundle/extensions/flatpak.rb
 +++ b/Library/Homebrew/bundle/extensions/flatpak.rb
 @@ -97,15 +97,10 @@ module Homebrew
@@ -65,7 +65,7 @@ index c24315abaf..a7545b63dc 100644
                urls[name] = url if name && url
              end
              urls
-@@ -124,15 +119,14 @@ module Homebrew
+@@ -124,15 +119,13 @@ module Homebrew
              # List applications with their origin remote
              # Using --app to filter applications only
              # Using --columns=application,origin to get app IDs and their remotes
@@ -79,14 +79,13 @@ index c24315abaf..a7545b63dc 100644
 -              next if parts.empty? || name.nil? || name.empty?
 +              name, remote = line.strip.split("\t")
 +              next if name.nil?
-+              next if name.empty?
  
 -              remote = parts[1] || "flathub"
 +              remote ||= "flathub"
                package = T.let({ name:, remote:, remote_url: T.let(nil, T.nilable(String)) }, Package)
                remote_url = remote_urls[remote]
                package[:remote_url] = remote_url
-@@ -295,10 +289,9 @@ module Homebrew
+@@ -295,10 +288,9 @@ module Homebrew
            return false unless Bundle.system(flatpak, "install", "-y", "--system", url, verbose:)
  
            # Get the actual remote name used by Flatpak
@@ -100,7 +99,7 @@ index c24315abaf..a7545b63dc 100644
            actual_remote ||= "#{name}-origin"
            package = { name:, remote: actual_remote, remote_url: nil }
            packages_with_remotes = T.let(@packages_with_remotes || [], T::Array[Package])
-@@ -307,6 +300,11 @@ module Homebrew
+@@ -307,6 +299,11 @@ module Homebrew
            @installed_packages = packages_with_remotes.dup
            @packages = packages_with_remotes.map { |pkg| pkg[:name] }
            true
@@ -112,7 +111,7 @@ index c24315abaf..a7545b63dc 100644
          end
  
          # Generate a single-app remote name (Tier 2)
-@@ -356,11 +354,10 @@ module Homebrew
+@@ -356,11 +353,10 @@ module Homebrew
          # Get URL for an existing remote, or nil if not found
          sig { params(flatpak: String, remote_name: String).returns(T.nilable(String)) }
          def get_remote_url(flatpak, remote_name)

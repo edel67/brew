@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I20",
+  "candidate": "EX-I21",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/flatpak.rb",
-      "sha256": "58e1e110de70f1f011b3d90acb2234f8f66e29ca9473d4928496b2e3cdf86bfa"
+      "sha256": "920030796a81c297eb9d4715c535b40aa0a5b825217966ebc14a8c901dcfb6bd"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/go.rb",
@@ -87,5 +87,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "21a8652b2e36bcdc412bde3c16d352c729764d28193d41e4a509a5e620633fcb"
+  "sha256": "44c80493447dd6f45569b539e337f3f69e5bf70443b40dee13ad58fbd92c680a",
+  "hash_scheme": "sha256(json.dumps(files, sort_keys=True).encode()) with default separators"
 }
