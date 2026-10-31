@@ -1,5 +1,5 @@
 diff --git a/Library/Homebrew/bundle/extensions/cargo.rb b/Library/Homebrew/bundle/extensions/cargo.rb
-index 5ae02bf221..d53d1ec5a7 100644
+index 5ae02bf221..b091d3a8c5 100644
 --- a/Library/Homebrew/bundle/extensions/cargo.rb
 +++ b/Library/Homebrew/bundle/extensions/cargo.rb
 @@ -104,7 +104,7 @@ module Homebrew
@@ -11,7 +11,19 @@ index 5ae02bf221..d53d1ec5a7 100644
              end
            end
            return [] if @packages.nil?
-@@ -270,9 +270,7 @@ module Homebrew
+@@ -154,10 +154,7 @@ module Homebrew
+ 
+         sig { override.returns(T::Array[Crate]) }
+         def installed_packages
+-          installed_packages = @installed_packages
+-          return installed_packages if installed_packages
+-
+-          @installed_packages = packages.dup
++          @installed_packages ||= packages.dup
+         end
+ 
+         sig { override.params(name: String, executable: Pathname).returns(T::Boolean) }
+@@ -270,9 +267,7 @@ module Homebrew
  
          sig { params(output: String).returns(T::Array[Crate]) }
          def parse_package_list(output)
@@ -23,7 +35,7 @@ index 5ae02bf221..d53d1ec5a7 100644
              next if match.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/extension.rb b/Library/Homebrew/bundle/extensions/extension.rb
-index 2cd1d75b20..5caa43ad65 100644
+index 2cd1d75b20..71f3d7f925 100644
 --- a/Library/Homebrew/bundle/extensions/extension.rb
 +++ b/Library/Homebrew/bundle/extensions/extension.rb
 @@ -19,6 +19,18 @@ module Homebrew
@@ -45,6 +57,14 @@ index 2cd1d75b20..5caa43ad65 100644
        sig { abstract.returns(String) }
        def self.banner_name; end
  
+@@ -310,6 +322,7 @@ module Homebrew
+         Bundle.reset!
+         Bundle.formula_versions_from_env_cache = formula_versions_from_env
+         Bundle.upgrade_formulae = upgrade_formulae.join(",")
++        reset!
+         return if package_manager_installed?
+ 
+         raise "Unable to install #{name} #{package_description}. " \
 diff --git a/Library/Homebrew/bundle/extensions/flatpak.rb b/Library/Homebrew/bundle/extensions/flatpak.rb
 index c24315abaf..95ccb75124 100644
 --- a/Library/Homebrew/bundle/extensions/flatpak.rb
@@ -139,7 +159,7 @@ index c24315abaf..95ccb75124 100644
            nil
          end
 diff --git a/Library/Homebrew/bundle/extensions/go.rb b/Library/Homebrew/bundle/extensions/go.rb
-index 18debdfdd5..28209cd312 100644
+index 18debdfdd5..c4e3b63759 100644
 --- a/Library/Homebrew/bundle/extensions/go.rb
 +++ b/Library/Homebrew/bundle/extensions/go.rb
 @@ -6,6 +6,9 @@ require "bundle/extensions/extension"
@@ -252,7 +272,19 @@ index 18debdfdd5..28209cd312 100644
  
          sig {
            override.params(
-@@ -103,23 +127,10 @@ module Homebrew
+@@ -89,10 +113,7 @@ module Homebrew
+ 
+         sig { override.returns(T::Array[String]) }
+         def installed_packages
+-          installed_packages = @installed_packages
+-          return installed_packages if installed_packages
+-
+-          @installed_packages = packages.dup
++          @installed_packages ||= packages.dup
+         end
+ 
+         sig { override.params(items: T::Array[String]).void }
+@@ -103,23 +124,10 @@ module Homebrew
              return
            end
  
@@ -280,7 +312,7 @@ index 18debdfdd5..28209cd312 100644
              begin
                File.unlink(binary)
 diff --git a/Library/Homebrew/bundle/extensions/krew.rb b/Library/Homebrew/bundle/extensions/krew.rb
-index fc143621fa..89e9da88a7 100644
+index fc143621fa..988917ce5c 100644
 --- a/Library/Homebrew/bundle/extensions/krew.rb
 +++ b/Library/Homebrew/bundle/extensions/krew.rb
 @@ -45,7 +45,7 @@ module Homebrew
@@ -292,7 +324,16 @@ index fc143621fa..89e9da88a7 100644
              end
            else
              []
-@@ -77,13 +77,7 @@ module Homebrew
+@@ -69,21 +69,13 @@ module Homebrew
+ 
+         sig { override.returns(T::Array[String]) }
+         def installed_packages
+-          installed_packages = @installed_packages
+-          return installed_packages if installed_packages
+-
+-          @installed_packages = packages.dup
++          @installed_packages ||= packages.dup
+         end
  
          sig { params(output: String).returns(T::Array[String]) }
          def parse_plugin_list(output)
@@ -303,6 +344,7 @@ index fc143621fa..89e9da88a7 100644
 -            name = line.split(/\s+/).first
 -            name.presence
 -          end.uniq
++          # Krew prints only plugin names when stdout is piped.
 +          output.each_line(chomp: true).reject(&:empty?).uniq
          end
          private :parse_plugin_list
@@ -330,7 +372,7 @@ index 7113f1b41d..5d01e50c14 100644
              end
            end
 diff --git a/Library/Homebrew/bundle/extensions/npm.rb b/Library/Homebrew/bundle/extensions/npm.rb
-index 8009d1816f..ca236a57f2 100644
+index 8009d1816f..63ee8dbe20 100644
 --- a/Library/Homebrew/bundle/extensions/npm.rb
 +++ b/Library/Homebrew/bundle/extensions/npm.rb
 @@ -101,7 +101,7 @@ module Homebrew
@@ -342,7 +384,19 @@ index 8009d1816f..ca236a57f2 100644
              end
            end
            return [] if @packages.nil?
-@@ -139,11 +139,8 @@ module Homebrew
+@@ -126,10 +126,7 @@ module Homebrew
+ 
+         sig { override.returns(T::Array[String]) }
+         def installed_packages
+-          installed_packages = @installed_packages
+-          return installed_packages if installed_packages
+-
+-          @installed_packages = packages.dup
++          @installed_packages ||= packages.dup
+         end
+ 
+         sig { returns(T::Array[String]) }
+@@ -139,11 +136,8 @@ module Homebrew
            return [] unless (npm = package_manager_executable)
  
            @outdated_packages = with_env(package_manager_env(npm)) do
@@ -355,7 +409,7 @@ index 8009d1816f..ca236a57f2 100644
          end
  
          sig { override.params(name: String, executable: Pathname).returns(T::Boolean) }
-@@ -151,17 +148,71 @@ module Homebrew
+@@ -151,17 +145,71 @@ module Homebrew
            Bundle.system(executable.to_s, "uninstall", "-g", name, verbose: false)
          end
  
@@ -366,12 +420,7 @@ index 8009d1816f..ca236a57f2 100644
 +        def inventory_json(npm, command)
 +          result = SystemCommand.run(npm, args: [command, "-g", "--depth=0", "--json"], print_stderr: false)
 +          result.assert_success! unless [0, 1].include?(result.exit_status)
- 
--          json = JSON.parse(output)
--          deps = json.fetch("dependencies", {})
--          deps.keys.reject { |name| name == "npm" }
--        rescue JSON::ParserError
--          []
++
 +          begin
 +            json = JSON.parse(result.stdout)
 +          rescue JSON::ParserError
@@ -428,7 +477,12 @@ index 8009d1816f..ca236a57f2 100644
 +            result.assert_success!
 +            raise "Invalid npm outdated inventory: unexpected JSON structure"
 +          end
-+
+ 
+-          json = JSON.parse(output)
+-          deps = json.fetch("dependencies", {})
+-          deps.keys.reject { |name| name == "npm" }
+-        rescue JSON::ParserError
+-          []
 +          json.keys.reject { |name| name == "npm" }
          end
 -        private :parse_package_list
@@ -437,7 +491,7 @@ index 8009d1816f..ca236a57f2 100644
  
        sig { override.params(package: Object, no_upgrade: T::Boolean).returns(String) }
 diff --git a/Library/Homebrew/bundle/extensions/uv.rb b/Library/Homebrew/bundle/extensions/uv.rb
-index 1bcf595f69..24a41aa46b 100644
+index 1bcf595f69..b7dd084c86 100644
 --- a/Library/Homebrew/bundle/extensions/uv.rb
 +++ b/Library/Homebrew/bundle/extensions/uv.rb
 @@ -75,11 +75,9 @@ module Homebrew
@@ -455,6 +509,17 @@ index 1bcf595f69..24a41aa46b 100644
          end
  
          sig { override.params(package: Object).returns(String) }
+@@ -127,9 +125,7 @@ module Homebrew
+ 
+         sig { override.returns(T::Array[Tool]) }
+         def installed_packages
+-          return @installed_packages if @installed_packages
+-
+-          @installed_packages = packages.dup
++          @installed_packages ||= packages.dup
+         end
+ 
+         sig { params(output: String).returns(T::Array[Tool]) }
 diff --git a/Library/Homebrew/bundle/extensions/vscode_extension.rb b/Library/Homebrew/bundle/extensions/vscode_extension.rb
 index f4b7c286ba..b1cdc7d699 100644
 --- a/Library/Homebrew/bundle/extensions/vscode_extension.rb
@@ -955,7 +1020,7 @@ index b431fc751b..82772d05fa 100644
  
              expect(Homebrew::Bundle).to \
 diff --git a/Library/Homebrew/test/bundle/go_spec.rb b/Library/Homebrew/test/bundle/go_spec.rb
-index c0828dbb1d..913f4e5a37 100644
+index c0828dbb1d..f336fa0dde 100644
 --- a/Library/Homebrew/test/bundle/go_spec.rb
 +++ b/Library/Homebrew/test/bundle/go_spec.rb
 @@ -3,9 +3,181 @@
@@ -1170,7 +1235,37 @@ index c0828dbb1d..913f4e5a37 100644
          expect(dumper.packages).to eql(["github.com/charmbracelet/crush"])
        end
  
-@@ -158,15 +335,20 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -49,6 +226,29 @@ RSpec.describe Homebrew::Bundle::Go do
+     end
+   end
+ 
++  describe "bootstrap cache invalidation" do
++    before do
++      described_class.reset!
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    it "rediscovers installed packages after bootstrapping the manager" do
++      allow(described_class).to receive_messages(package_manager_executable: nil,
++                                                 discovered_binaries:        { "/tmp/tool" => "example.com/tool" })
++      described_class.installed_packages
++      allow(Homebrew::Bundle).to receive(:system)
++        .with(HOMEBREW_BREW_FILE, "install", "--formula", "go", verbose: false) do
++          allow(described_class).to receive(:package_manager_executable).and_return(Pathname("go"))
++          true
++        end
++
++      expect(described_class.preinstall!("example.com/tool")).to be(false)
++    end
++  end
++
+   describe "installing" do
+     context "when Go is not installed" do
+       before do
+@@ -158,15 +358,20 @@ RSpec.describe Homebrew::Bundle::Go do
        binary = "/Users/test/go/bin/cr;ush $(touch pwned)"
        allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
        allow(described_class).to receive(:puts)
@@ -1198,7 +1293,7 @@ index c0828dbb1d..913f4e5a37 100644
  
        expect(File).to receive(:unlink).with(binary)
  
-@@ -178,19 +360,23 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -178,19 +383,23 @@ RSpec.describe Homebrew::Bundle::Go do
  
        before do
          Homebrew.failed = false
@@ -1232,7 +1327,7 @@ index c0828dbb1d..913f4e5a37 100644
          end
        end
 diff --git a/Library/Homebrew/test/bundle/krew_spec.rb b/Library/Homebrew/test/bundle/krew_spec.rb
-index 766b4638db..ec5510ac81 100644
+index 766b4638db..252feb664c 100644
 --- a/Library/Homebrew/test/bundle/krew_spec.rb
 +++ b/Library/Homebrew/test/bundle/krew_spec.rb
 @@ -4,8 +4,63 @@
@@ -1320,7 +1415,37 @@ index 766b4638db..ec5510ac81 100644
  
          expect(dumper.packages).to be_empty
        end
-@@ -101,6 +156,7 @@ RSpec.describe Homebrew::Bundle::Krew do
+@@ -49,6 +104,29 @@ RSpec.describe Homebrew::Bundle::Krew do
+     end
+   end
+ 
++  describe "bootstrap cache invalidation" do
++    before do
++      described_class.reset!
++    end
++
++    after do
++      described_class.reset!
++    end
++
++    it "rediscovers installed packages after bootstrapping the manager" do
++      allow(described_class).to receive(:package_manager_executable).and_return(nil)
++      described_class.installed_packages
++      allow(described_class).to receive(:command_output).with(Pathname("krew"), args: ["list"]).and_return("ctx\n")
++      allow(Homebrew::Bundle).to receive(:system)
++        .with(HOMEBREW_BREW_FILE, "install", "--formula", "krew", verbose: false) do
++          allow(described_class).to receive(:package_manager_executable).and_return(Pathname("krew"))
++          true
++        end
++
++      expect(described_class.preinstall!("ctx")).to be(false)
++    end
++  end
++
+   describe "installing" do
+     context "when kubectl-krew is not found" do
+       before do
+@@ -101,6 +179,7 @@ RSpec.describe Homebrew::Bundle::Krew do
              package_manager_executable: Pathname.new("/usr/local/bin/kubectl-krew"),
              package_manager_installed?: true,
              installed_packages:         [],

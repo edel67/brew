@@ -1,14 +1,14 @@
 {
-  "candidate": "EX-I23",
+  "candidate": "EX-I26",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
       "path": "Library/Homebrew/bundle/extensions/cargo.rb",
-      "sha256": "815d95df9a86a000e03edec6d0365b1127d9b2c8939be6083059212254a6734e"
+      "sha256": "e3a52fe95ca3a20294287819b8d235a429f03eaeac0ccaa0225c0cc3cd2a9e4a"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/extension.rb",
-      "sha256": "058867ae81494fab1b3552cfef587f7d76d0abdb1711f8533f8b6d67090d02bb"
+      "sha256": "bc55d76a0779f6bd98289dc2625ea5d7442a6806558cbc638e3a4c92e554f66a"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/flatpak.rb",
@@ -16,11 +16,11 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/go.rb",
-      "sha256": "dc2a310c64ee6d6e6a2d9b880830206dbdfa63b3624454880b3ee4c99a282e64"
+      "sha256": "b1594bf59d8ea711e822676b8b63c1a95a00315c64873add00ba2f3b8143ec44"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/krew.rb",
-      "sha256": "bc22e8b525c17a7afbcf2eb609aedd02d8db0d54ebd17eae0c00cb0842d10002"
+      "sha256": "7436ba762f1fa3c5b6085b257304d6ac812be5a5a9aa3b7f0976ec790656df31"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/mac_app_store.rb",
@@ -28,11 +28,11 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/npm.rb",
-      "sha256": "1206c6ca5545a9d0007f35663f2e4afa5e21894671e9f48566412e73ac9f6f05"
+      "sha256": "4aead27509ef94157a81bb6b016c55ad860855753bf552f3096673a5b5f9b663"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/uv.rb",
-      "sha256": "2844be1ecf2314dfea97b015fc7fed719c6c7f0b44e66795eb41a95937edb1a6"
+      "sha256": "7ae6535f743808e03ae3df7bb30ba95732f580b191bf4c3a4365429172c842b1"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/vscode_extension.rb",
@@ -52,11 +52,11 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/go_spec.rb",
-      "sha256": "b331c3564e8b2ec014e983f0e2af5bcffe6adf29f982ea76a4432834837975b8"
+      "sha256": "5f735420e4bdd61eaf7b8f4d6b93b306029e34853253d4249ec2f8800ff9e1ed"
     },
     {
       "path": "Library/Homebrew/test/bundle/krew_spec.rb",
-      "sha256": "a6a4f3b510fb7161094ca081916a7453492b20a3fb41d17cb3f70ade850352e3"
+      "sha256": "0a2b8be824bf4569efcdf1efaf04a1a2292128b61d697193f0ceb06a24d098f1"
     },
     {
       "path": "Library/Homebrew/test/bundle/mac_app_store_spec.rb",
@@ -87,6 +87,7 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "42cf25b67112daf5a099f9496291718a3dcb4ec7d551e224095330b0512557be",
-  "hash_scheme": "sha256(json.dumps(files, sort_keys=True).encode()) with default separators"
+  "sha256": "c8c1d898ebed628a6ec778eaec2402e1cd694011e423a86e12c40c9fab5426d5",
+  "hash_scheme": "sha256(json.dumps(files, sort_keys=True).encode()) with default separators",
+  "candidate_sha256": "c8c1d898ebed628a6ec778eaec2402e1cd694011e423a86e12c40c9fab5426d5"
 }
