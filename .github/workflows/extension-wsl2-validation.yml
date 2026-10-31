@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Windows prerequisites and native fixture
+      - name: Windows prerequisites
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -22,18 +22,6 @@ jobs:
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsVersion | Format-List | Out-File evidence/windows.txt
           $PSVersionTable | Out-String | Add-Content evidence/windows.txt
           if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { throw 'PowerShell 5.1 required' }
-          $root = Join-Path $env:RUNNER_TEMP "Example's café"
-          New-Item -ItemType Directory -Force $root | Out-Null
-          Add-Type -TypeDefinition (Get-Content .github/wsl2-validation/fixture.cs -Raw -Encoding UTF8) -Language CSharp -OutputAssembly (Join-Path $root 'fixture.exe') -OutputType ConsoleApplication
-          $root | Set-Content evidence/fixture-path.txt -Encoding UTF8
-          if (!(Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-            Install-PackageProvider -Name NuGet -Force | Out-Null
-            Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery -Scope CurrentUser | Out-Null
-            Repair-WinGetPackageManager -Force -Latest
-          }
-          winget.exe --version | Tee-Object evidence/winget-version.txt
-          if ($LASTEXITCODE -ne 0) { throw 'WinGet unavailable' }
-          . .github/wsl2-validation/native-status.ps1 -FixtureRoot $root
       - uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
         with:
           distribution: Ubuntu-24.04
@@ -60,7 +48,6 @@ jobs:
           set -euo pipefail
           WSL_WORKSPACE="$PWD"
           export HOME="/home/brewtest"
-          WSL_FIXTURE="$(wslpath -u "$(tr -d '\r\n' < evidence/fixture-path.txt | sed 's/^\xEF\xBB\xBF//')")"
           uname -a | tee "$WSL_WORKSPACE/evidence/kernel.txt"
           uname -r | grep -qi 'microsoft.*WSL2'
           mkdir -p "$HOME/brew"
@@ -75,11 +62,18 @@ jobs:
           for entry in manifest['files']:
               assert hashlib.sha256(pathlib.Path(entry['path']).read_bytes()).hexdigest()==entry['sha256'], entry['path']
           assert hashlib.sha256(json.dumps(manifest['files'],sort_keys=True).encode()).hexdigest()==manifest['sha256']
-          print('Verified all 21 candidate files:',manifest['sha256'])
+          print('Verified candidate files:', len(manifest['files']), manifest['sha256'])
           PY
           export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_BOOTSNAP=1 HOMEBREW_DEVELOPER=1
           ./bin/brew tests --only=bundle/flatpak,bundle/cargo,bundle/krew,bundle/go,bundle/npm,bundle/vscode_extension,bundle/winget --no-parallel 2>&1 | tee "$WSL_WORKSPACE/evidence/affected-specs.txt"
-          ./bin/brew ruby -- .github/wsl2-validation/native.rb "$WSL_FIXTURE" 2>&1 | tee "$WSL_WORKSPACE/evidence/native.txt"
+          python3 .github/wsl2-validation/regressions.py ./bin/brew native "$WSL_WORKSPACE/evidence/native-regressions"
+          python3 - <<'PY_CHECK'
+          import hashlib,json,pathlib
+          manifest=json.load(open('.github/wsl2-validation/manifest.json'))
+          for entry in manifest['files']:
+              assert hashlib.sha256(pathlib.Path(entry['path']).read_bytes()).hexdigest()==entry['sha256'], entry['path']
+          print('Production source restored after regression checks')
+          PY_CHECK
           ./bin/brew ruby -- -v | tee "$WSL_WORKSPACE/evidence/ruby.txt"
           cp .github/wsl2-validation/manifest.json "$WSL_WORKSPACE/evidence/candidate.json"
       - name: Retain validation evidence

@@ -2051,10 +2051,10 @@ index e3ee45468d..c6589557f3 100644
  
          expect(dumper.extensions).to eql(["github.codespaces"])
 diff --git a/Library/Homebrew/test/bundle/winget_spec.rb b/Library/Homebrew/test/bundle/winget_spec.rb
-index 545a123352..b90de53c4d 100644
+index 545a123352..653b39614c 100644
 --- a/Library/Homebrew/test/bundle/winget_spec.rb
 +++ b/Library/Homebrew/test/bundle/winget_spec.rb
-@@ -3,10 +3,115 @@
+@@ -3,10 +3,149 @@
  
  require "bundle"
  require "bundle/dsl"
@@ -2104,6 +2104,26 @@ index 545a123352..b90de53c4d 100644
 +      expect(described_class.apps.map(&:id)).to eq(["Example.App", "Example.App"])
 +    end
 +
++    test_each_hash({ "missing" => Errno::ENOENT, "malformed" => RuntimeError }) do |export, error|
++      it "retries after a successful command produces a #{export} export" do
++        if export == "missing"
++          powershell.write "#!/bin/sh\nrm -f \"$EXAMPLE_WINGET_EXPORT\"\n"
++        else
++          write_inventory(output: "not json")
++        end
++
++        expect { described_class.apps }.to raise_error(error)
++        write_inventory(output: inventory_output)
++        expect(described_class.apps.map(&:id)).to eq(["Example.App", "Example.App"])
++      end
++    end
++
++    it "rejects an unavailable PowerShell executable" do
++      powershell.unlink
++
++      expect { described_class.apps }.to raise_error(RuntimeError, /requires Windows PowerShell 5.1/)
++    end
++
 +    it "skips name listing for empty exports" do
 +      write_inventory(output: '{"Sources":[]}')
 +      expect(described_class).not_to receive(:listed_app_names)
@@ -2139,6 +2159,20 @@ index 545a123352..b90de53c4d 100644
 +  end
 +
 +  describe "strict inventory path conversion" do
++    test_each_hash({ "exit 2"               => /exited with 2/,
++                     "printf relative/path" => /Invalid Windows path/ }) do |command, error|
++      it "rejects unsuccessful or nonabsolute conversion: #{command}" do
++        converter = mktmpdir/"wslpath"
++        converter.write "#!/bin/sh\n#{command}\n"
++        converter.chmod 0755
++        allow(described_class).to receive(:which).with("wslpath", ORIGINAL_PATHS).and_return(converter)
++
++        expect do
++          described_class.exported_apps(Pathname("C:/WinGet/winget.exe"), source: "winget")
++        end.to raise_error(error)
++      end
++    end
++
 +    it "rejects a missing converter for Linux paths" do
 +      allow(described_class).to receive(:which).with("wslpath", ORIGINAL_PATHS).and_return(nil)
 +      expect do
@@ -2170,7 +2204,7 @@ index 545a123352..b90de53c4d 100644
    describe "checking" do
      let(:entry) do
        Homebrew::Bundle::Dsl::Entry.new(:winget, "PowerToys", id: "XP89DCGQ3K6VLD", source: "msstore")
-@@ -111,9 +216,12 @@ RSpec.describe Homebrew::Bundle::Winget do
+@@ -111,9 +250,12 @@ RSpec.describe Homebrew::Bundle::Winget do
            Homebrew::Bundle::Winget::App.new(id: "Valve.Steam", name: "Valve.Steam", source: "winget"),
            Homebrew::Bundle::Winget::App.new(id: "Unknown.Package", name: "Unknown.Package", source: "winget"),
          ])
@@ -2186,7 +2220,7 @@ index 545a123352..b90de53c4d 100644
            .and_return(<<~EOS)
              Name                                       Id                                          Version
              -----------------------------------------------------------------------------------------------
-@@ -194,7 +302,7 @@ RSpec.describe Homebrew::Bundle::Winget do
+@@ -194,7 +336,7 @@ RSpec.describe Homebrew::Bundle::Winget do
  
      context "when app is not installed" do
        before do
@@ -2365,3 +2399,155 @@ index 0000000000..1822fe8c69
 +    include_examples "a failed inventory dump"
 +  end
 +end
+diff --git a/Library/Homebrew/test/bundle/winget_native_spec.rb b/Library/Homebrew/test/bundle/winget_native_spec.rb
+new file mode 100644
+index 0000000000..ad9ea95d56
+--- /dev/null
++++ b/Library/Homebrew/test/bundle/winget_native_spec.rb
+@@ -0,0 +1,106 @@
++# typed: true
++# frozen_string_literal: true
++
++require "bundle"
++require "bundle/extensions/winget"
++
++RSpec.describe Homebrew::Bundle::Winget do
++  let(:native_directory) { mktmpdir("winget") }
++  let(:executable) { native_directory/"fixture.exe" }
++  let(:powershell) { Pathname("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe") }
++
++  def windows_path(path)
++    Utils.safe_popen_read("wslpath", "-w", path.to_s).chomp
++  end
++
++  before do
++    skip "Requires WSL and Windows PowerShell 5.1." unless OS.wsl?
++
++    described_class.reset!
++    SystemCommand.run!(powershell, args: ["-NoProfile", "-NonInteractive", "-Command", <<~POWERSHELL])
++      $ErrorActionPreference = 'Stop'
++      if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
++        throw 'Windows PowerShell 5.1 required'
++      }
++      $source = Get-Content #{described_class.powershell_quote(windows_path(fixture("winget.cs")))} -Raw -Encoding UTF8
++      $output = #{described_class.powershell_quote(windows_path(executable))}
++      Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $output -OutputType ConsoleApplication
++    POWERSHELL
++    (native_directory/"exit-code.txt").write "00000000"
++    allow(described_class).to receive(:package_manager_executable).and_return(executable)
++  end
++
++  after do
++    described_class.reset!
++  end
++
++  it "reads both sources through native execution with Unicode names" do
++    expect(described_class.apps.map { |app| [app.name, app.source] })
++      .to eq([["Example café", "winget"], ["Example café", "msstore"]])
++  end
++
++  test_each(["80070000", "DEAD0014"]) do |status|
++    it "rejects native failure 0x#{status} without truncating its status" do
++      (native_directory/"exit-code.txt").write status
++
++      expect { described_class.apps }
++        .to raise_error(ErrorDuringExecution, /native diagnostic café.*0x#{status}/m)
++    end
++  end
++
++  it "accepts the exact no-applications status for export" do
++    (native_directory/"exit-code.txt").write "8A150014"
++
++    expect(described_class.apps).to eq([])
++  end
++
++  it "rejects the no-applications status for list" do
++    (native_directory/"exit-code.txt").write "8A150014"
++
++    expect { described_class.listed_app_names(executable, source: "winget") }
++      .to raise_error(ErrorDuringExecution, /0x8A150014/)
++  end
++
++  it "propagates failure to write the canonical empty export" do
++    (native_directory/"exit-code.txt").write "8A150014"
++    allow(Tempfile).to receive(:create).with(["brew-bundle-winget", ".json"])
++                                       .and_yield(instance_double(File,
++                                                                  path: (native_directory/"absent/export.json").to_s))
++
++    expect { described_class.exported_apps(executable, source: "winget") }.to raise_error(ErrorDuringExecution)
++  end
++
++  test_each(["'", "\u2018", "\u2019", "\u201A", "\u201B"]) do |quote|
++    context "with U+#{quote.ord.to_s(16).upcase} in executable and export paths" do
++      let(:quoted_directory) { native_directory/"Example#{quote}s café; $(Write-Output unexpected)" }
++      let(:quoted_executable) { quoted_directory/"fixture.exe" }
++
++      before do
++        quoted_directory.mkpath
++        FileUtils.cp(executable, quoted_executable)
++        FileUtils.cp(native_directory/"exit-code.txt", quoted_directory/"exit-code.txt")
++        allow(Tempfile).to receive(:create).and_wrap_original do |original, basename, &block|
++          original.call(basename, quoted_directory, &block)
++        end
++      end
++
++      it "preserves literal arguments through native export and list" do
++        expect(described_class.export_apps(quoted_executable, source: "winget"))
++          .to contain_exactly(have_attributes(id: "Example.App", name: "Example café"))
++      end
++
++      it "writes the canonical empty export as BOM-free UTF-8" do
++        (quoted_directory/"exit-code.txt").write "8A150014"
++        allow(Tempfile).to receive(:create).and_wrap_original do |original, basename, &block|
++          original.call(basename, quoted_directory) do |file|
++            apps = block.call(file)
++            expect(File.binread(file.path)).to eq('{"Sources":[]}')
++            apps
++          end
++        end
++
++        expect(described_class.exported_apps(quoted_executable, source: "winget")).to eq([])
++      end
++    end
++  end
++end
+diff --git a/Library/Homebrew/test/support/fixtures/winget.cs b/Library/Homebrew/test/support/fixtures/winget.cs
+new file mode 100644
+index 0000000000..e7e2ebb991
+--- /dev/null
++++ b/Library/Homebrew/test/support/fixtures/winget.cs
+@@ -0,0 +1,34 @@
++using System;
++using System.Globalization;
++using System.IO;
++using System.Text;
++
++public class WinGetFixture
++{
++    public static int Main(string[] args)
++    {
++        Console.OutputEncoding = new UTF8Encoding(false);
++        string configuration = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "exit-code.txt");
++        uint status = uint.Parse(File.ReadAllText(configuration), NumberStyles.HexNumber);
++        Console.Error.WriteLine("native diagnostic café");
++
++        if (status == 0)
++        {
++            if (args[0] == "export")
++            {
++                string output = args[Array.IndexOf(args, "--output") + 1];
++                File.WriteAllText(output,
++                    "{\"Sources\":[{\"Packages\":[{\"PackageIdentifier\":\"Example.App\"}]}]}",
++                    new UTF8Encoding(false));
++            }
++            else
++            {
++                Console.WriteLine("Name                Id                  Version\n" +
++                    "------------------------------------------------\n" +
++                    "Example café        Example.App         1.0");
++            }
++        }
++
++        return unchecked((int)status);
++    }
++}

@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I27",
+  "candidate": "EX-I28",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -79,15 +79,22 @@
       "sha256": "747316b4bf1947cd60992e9fffe8ea470d2ba120031b9942619ae5b0188db781"
     },
     {
+      "path": "Library/Homebrew/test/bundle/winget_native_spec.rb",
+      "sha256": "5a90c0cb08c0f260944147e52803c528976c60335d7b9e035389a9a137d6a1c9"
+    },
+    {
       "path": "Library/Homebrew/test/bundle/winget_spec.rb",
-      "sha256": "e1547165fdf9e55f00d5baf7befb0348e89786e4c108deeb108fbc00685df86c"
+      "sha256": "28a365ec6008cb49648739c0eec14bd81b6769ff13ba522f040cd0054014e0fd"
+    },
+    {
+      "path": "Library/Homebrew/test/support/fixtures/winget.cs",
+      "sha256": "3f07f4c8bf729ea580e4a65a77e9f13c10ee31a27c536c139995d9b77ea545dd"
     },
     {
       "path": "docs/Brew-Bundle-and-Brewfile.md",
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "4f0307676a5750cf8a1c038c59eb568fccf12ac12a0aa0c5939f68dcbc2c44da",
-  "hash_scheme": "sha256(json.dumps(files, sort_keys=True).encode()) with default separators",
-  "candidate_sha256": "4f0307676a5750cf8a1c038c59eb568fccf12ac12a0aa0c5939f68dcbc2c44da"
+  "sha256": "54095888a6a4eabfc780086dcd50eeaa7afb559a97e82b0f611836a567e52b63",
+  "candidate_sha256": "54095888a6a4eabfc780086dcd50eeaa7afb559a97e82b0f611836a567e52b63"
 }
