@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I29",
+  "candidate": "EX-I30",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/npm.rb",
-      "sha256": "4aead27509ef94157a81bb6b016c55ad860855753bf552f3096673a5b5f9b663"
+      "sha256": "6f00b65a69bec0b278e43ad55b0f89e6dcf5995d25388c6bce0142eeec6d5914"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/uv.rb",
@@ -95,6 +95,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "43341d637387019a1f51eef1b8605e2d9eda9ae7047d8dc2f33b5eacfb1b28d0",
-  "candidate_sha256": "43341d637387019a1f51eef1b8605e2d9eda9ae7047d8dc2f33b5eacfb1b28d0"
+  "sha256": "437ab38195ff32cdb0797de85ae3f14f58f7e7c126148b08e4e96c89d599c39d",
+  "candidate_sha256": "437ab38195ff32cdb0797de85ae3f14f58f7e7c126148b08e4e96c89d599c39d"
 }

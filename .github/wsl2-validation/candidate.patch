@@ -376,7 +376,7 @@ index 7113f1b41d..9d91af2aa1 100644
            end
            return [] if @outdated_app_ids.nil?
 diff --git a/Library/Homebrew/bundle/extensions/npm.rb b/Library/Homebrew/bundle/extensions/npm.rb
-index 8009d1816f..63ee8dbe20 100644
+index 8009d1816f..140177e3ea 100644
 --- a/Library/Homebrew/bundle/extensions/npm.rb
 +++ b/Library/Homebrew/bundle/extensions/npm.rb
 @@ -101,7 +101,7 @@ module Homebrew
@@ -413,7 +413,7 @@ index 8009d1816f..63ee8dbe20 100644
          end
  
          sig { override.params(name: String, executable: Pathname).returns(T::Boolean) }
-@@ -151,17 +145,71 @@ module Homebrew
+@@ -151,17 +145,75 @@ module Homebrew
            Bundle.system(executable.to_s, "uninstall", "-g", name, verbose: false)
          end
  
@@ -468,14 +468,18 @@ index 8009d1816f..63ee8dbe20 100644
 +        sig { params(npm: Pathname).returns(T::Array[String]) }
 +        def outdated_package_names(npm)
 +          result, json = inventory_json(npm, "outdated")
++          result.assert_success! if json.empty?
++
 +          valid = json.each_value.all? do |value|
 +            records = value.is_a?(Array) ? value : [value]
-+            records.present? && records.all? do |record|
++            next false if records.empty?
++
++            records.all? do |record|
 +              next false unless record.is_a?(Hash)
 +
-+              record["wanted"].is_a?(String) && record["latest"].is_a?(String)
++              record.values_at("wanted", "latest").all?(String)
 +            end
-+          end && (result.exit_status != 1 || json.present?)
++          end
 +
 +          unless valid
 +            result.assert_success!
