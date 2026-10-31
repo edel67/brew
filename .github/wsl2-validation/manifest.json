@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I28",
+  "candidate": "EX-I29",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -32,7 +32,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/uv.rb",
-      "sha256": "7ae6535f743808e03ae3df7bb30ba95732f580b191bf4c3a4365429172c842b1"
+      "sha256": "e4d2f29468093f4bbe00578e7e68dae7c1289efcd91392b849bb1729c4154327"
     },
     {
       "path": "Library/Homebrew/bundle/extensions/vscode_extension.rb",
@@ -40,7 +40,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/winget.rb",
-      "sha256": "8acf43b801629b77f5579bb37b811cb0f4c3e84155d5bd05a5f1f609055fde3d"
+      "sha256": "257e203e56ae529b1715416b0c374a70005e265a0ba2238ad24405236fdc257c"
     },
     {
       "path": "Library/Homebrew/test/bundle/cargo_spec.rb",
@@ -95,6 +95,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "54095888a6a4eabfc780086dcd50eeaa7afb559a97e82b0f611836a567e52b63",
-  "candidate_sha256": "54095888a6a4eabfc780086dcd50eeaa7afb559a97e82b0f611836a567e52b63"
+  "sha256": "43341d637387019a1f51eef1b8605e2d9eda9ae7047d8dc2f33b5eacfb1b28d0",
+  "candidate_sha256": "43341d637387019a1f51eef1b8605e2d9eda9ae7047d8dc2f33b5eacfb1b28d0"
 }

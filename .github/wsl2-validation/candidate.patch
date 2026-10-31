@@ -495,7 +495,7 @@ index 8009d1816f..63ee8dbe20 100644
  
        sig { override.params(package: Object, no_upgrade: T::Boolean).returns(String) }
 diff --git a/Library/Homebrew/bundle/extensions/uv.rb b/Library/Homebrew/bundle/extensions/uv.rb
-index 1bcf595f69..b7dd084c86 100644
+index 1bcf595f69..7f1e1d680d 100644
 --- a/Library/Homebrew/bundle/extensions/uv.rb
 +++ b/Library/Homebrew/bundle/extensions/uv.rb
 @@ -75,11 +75,9 @@ module Homebrew
@@ -524,6 +524,19 @@ index 1bcf595f69..b7dd084c86 100644
          end
  
          sig { params(output: String).returns(T::Array[Tool]) }
+@@ -137,10 +133,10 @@ module Homebrew
+           entries = T.let([], T::Array[Tool])
+ 
+           output.each_line do |line|
+-            match = line.match(/\A([A-Za-z0-9]\S*)\s+v\S+/)
++            match = line.match(/\A(?<name>[A-Za-z0-9]\S*)\s+v\S+/)
+             next unless match
+ 
+-            name = match[1]
++            name = match[:name]
+             next if name.nil?
+ 
+             extras_raw = line[/\[extras:\s*([^\]]+)\]/, 1]
 diff --git a/Library/Homebrew/bundle/extensions/vscode_extension.rb b/Library/Homebrew/bundle/extensions/vscode_extension.rb
 index f4b7c286ba..b1cdc7d699 100644
 --- a/Library/Homebrew/bundle/extensions/vscode_extension.rb
@@ -540,7 +553,7 @@ index f4b7c286ba..b1cdc7d699 100644
            return [] if @extensions.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
-index 0a0b1ffd19..dec36db19c 100644
+index 0a0b1ffd19..aef6f220e1 100644
 --- a/Library/Homebrew/bundle/extensions/winget.rb
 +++ b/Library/Homebrew/bundle/extensions/winget.rb
 @@ -44,6 +44,9 @@ module Homebrew
@@ -553,6 +566,21 @@ index 0a0b1ffd19..dec36db19c 100644
        class << self
          sig { override.returns(Symbol) }
          def type = :winget
+@@ -117,11 +120,11 @@ module Homebrew
+           path = path.tr("\\", "/")
+           return Pathname.new(path) if path.start_with?("/")
+ 
+-          match = path.match(%r{\A([A-Za-z]):/(.+)\z})
++          match = path.match(%r{\A(?<drive>[A-Za-z]):/(?<relative_path>.+)\z})
+           return if match.nil?
+ 
+-          drive = match[1]
+-          relative_path = match[2]
++          drive = match[:drive]
++          relative_path = match[:relative_path]
+           return if drive.nil? || relative_path.nil?
+ 
+           Pathname.new("/mnt/#{drive.downcase}/#{relative_path}")
 @@ -151,8 +154,11 @@ module Homebrew
  
          sig { params(winget: Pathname, source: String).returns(T::Array[App]) }
