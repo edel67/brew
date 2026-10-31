@@ -159,7 +159,7 @@ index c24315abaf..95ccb75124 100644
            nil
          end
 diff --git a/Library/Homebrew/bundle/extensions/go.rb b/Library/Homebrew/bundle/extensions/go.rb
-index 18debdfdd5..c4e3b63759 100644
+index 18debdfdd5..126faed5f2 100644
 --- a/Library/Homebrew/bundle/extensions/go.rb
 +++ b/Library/Homebrew/bundle/extensions/go.rb
 @@ -6,6 +6,9 @@ require "bundle/extensions/extension"
@@ -172,7 +172,7 @@ index 18debdfdd5..c4e3b63759 100644
        class << self
          sig { override.returns(Symbol) }
          def type = :go
-@@ -33,44 +36,65 @@ module Homebrew
+@@ -33,44 +36,66 @@ module Homebrew
            return packages if packages
  
            @packages = if (go = package_manager_executable)
@@ -236,7 +236,8 @@ index 18debdfdd5..c4e3b63759 100644
 +            next if entry.start_with?(".")
 +
 +            binary = File.join(bin_dir, entry)
-+            next if !File.executable?(binary) || File.directory?(binary) || File.symlink?(binary)
++            next unless File.executable?(binary)
++            next if File.directory?(binary) || File.symlink?(binary)
 +
 +            path = binary_package_path(go, binary)
 +            binaries[binary] = path if path
@@ -272,7 +273,7 @@ index 18debdfdd5..c4e3b63759 100644
  
          sig {
            override.params(
-@@ -89,10 +113,7 @@ module Homebrew
+@@ -89,10 +114,7 @@ module Homebrew
  
          sig { override.returns(T::Array[String]) }
          def installed_packages
@@ -284,7 +285,7 @@ index 18debdfdd5..c4e3b63759 100644
          end
  
          sig { override.params(items: T::Array[String]).void }
-@@ -103,23 +124,10 @@ module Homebrew
+@@ -103,23 +125,10 @@ module Homebrew
              return
            end
  
@@ -350,7 +351,7 @@ index fc143621fa..988917ce5c 100644
          private :parse_plugin_list
  
 diff --git a/Library/Homebrew/bundle/extensions/mac_app_store.rb b/Library/Homebrew/bundle/extensions/mac_app_store.rb
-index 7113f1b41d..5d01e50c14 100644
+index 7113f1b41d..9d91af2aa1 100644
 --- a/Library/Homebrew/bundle/extensions/mac_app_store.rb
 +++ b/Library/Homebrew/bundle/extensions/mac_app_store.rb
 @@ -80,7 +80,7 @@ module Homebrew
@@ -362,15 +363,18 @@ index 7113f1b41d..5d01e50c14 100644
                app_details = app.match(/\A\s*(?<id>\d+)\s+(?<name>.*?)\s+\(?(?<version>[\d.]*)\)?\Z/)
                next if app_details.nil?
  
-@@ -183,7 +183,7 @@ module Homebrew
+@@ -183,8 +183,9 @@ module Homebrew
            return outdated_app_ids if outdated_app_ids
  
            @outdated_app_ids = if (mas = package_manager_executable)
 -            Utils.popen_read_text(mas, "outdated", err: File::NULL).split("\n").map do |app|
-+            command_output(mas, args: ["outdated"]).split("\n").map do |app|
-               app.split(" ", 2).first.to_s
+-              app.split(" ", 2).first.to_s
++            command_output(mas, args: ["outdated"]).split("\n").map do |line|
++              app_id, _details = line.split(" ", 2)
++              app_id.to_s
              end
            end
+           return [] if @outdated_app_ids.nil?
 diff --git a/Library/Homebrew/bundle/extensions/npm.rb b/Library/Homebrew/bundle/extensions/npm.rb
 index 8009d1816f..63ee8dbe20 100644
 --- a/Library/Homebrew/bundle/extensions/npm.rb
