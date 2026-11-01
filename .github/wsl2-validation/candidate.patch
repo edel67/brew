@@ -557,7 +557,7 @@ index f4b7c286ba..b1cdc7d699 100644
            return [] if @extensions.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
-index 0a0b1ffd19..aef6f220e1 100644
+index 0a0b1ffd19..d71fc1d9ef 100644
 --- a/Library/Homebrew/bundle/extensions/winget.rb
 +++ b/Library/Homebrew/bundle/extensions/winget.rb
 @@ -44,6 +44,9 @@ module Homebrew
@@ -646,7 +646,7 @@ index 0a0b1ffd19..aef6f220e1 100644
            header_index = lines.index { |line| line.match?(/\bName\s+Id\s+Version\b/) }
            return {} if header_index.nil?
  
-@@ -212,31 +229,93 @@ module Homebrew
+@@ -212,31 +229,92 @@ module Homebrew
            path
          end
  
@@ -692,7 +692,6 @@ index 0a0b1ffd19..aef6f220e1 100644
 +          script = <<~POWERSHELL
 +            trap { [Console]::Error.WriteLine($_); exit 1 }
 +            [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
-+            $OutputEncoding = [Console]::OutputEncoding
  
 -          sources.flat_map do |source_export|
 -            next [] unless source_export.is_a?(Hash)
@@ -755,7 +754,7 @@ index 0a0b1ffd19..aef6f220e1 100644
          end
  
          sig { override.returns(T::Array[App]) }
-@@ -464,7 +543,7 @@ module Homebrew
+@@ -464,7 +542,7 @@ module Homebrew
  
          sig { params(value: String).returns(String) }
          def powershell_quote(value)
@@ -765,7 +764,7 @@ index 0a0b1ffd19..aef6f220e1 100644
  
          sig { params(output: String).returns(T::Boolean) }
 diff --git a/Library/Homebrew/test/bundle/cargo_spec.rb b/Library/Homebrew/test/bundle/cargo_spec.rb
-index 902d03f7f0..dd1644ac46 100644
+index 902d03f7f0..e12cb0ef15 100644
 --- a/Library/Homebrew/test/bundle/cargo_spec.rb
 +++ b/Library/Homebrew/test/bundle/cargo_spec.rb
 @@ -3,9 +3,13 @@
@@ -815,61 +814,111 @@ index 902d03f7f0..dd1644ac46 100644
            expect(ENV.fetch("CARGO_HOME", nil)).to eq("~/.cargo")
            expect(ENV.fetch("CARGO_INSTALL_ROOT", nil)).to eq("~/.cargo/bin")
            expect(ENV.fetch("RUSTUP_HOME", nil)).to eq("~/.rustup")
-@@ -158,7 +169,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+@@ -157,68 +168,57 @@ RSpec.describe Homebrew::Bundle::Cargo do
+         ])
        end
  
-       it "parses a git source and strips the resolved revision" do
+-      it "parses a git source and strips the resolved revision" do
 -        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git#3492d620):
-               kb
-         EOS
-@@ -170,7 +181,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
+-          tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git#3492d620):
+-              kb
+-        EOS
+-
+-        expect(dumper.packages).to eql([
+-          { name: "tftio-kb", source: "ssh://git@example.com/tftio/kb.git" },
+-        ])
+-        expect(dumper.dump).to eql('cargo "tftio-kb", source: "ssh://git@example.com/tftio/kb.git"')
+-      end
+-
+-      it "parses an https git source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
+-          ripgrep v13.0.0 (https://github.com/BurntSushi/ripgrep#9f0e88bc):
+-              rg
+-        EOS
+-
+-        expect(dumper.packages.first&.dig(:source)).to eql("https://github.com/BurntSushi/ripgrep")
+-      end
+-
+-      it "keeps a tag selector while stripping the resolved revision" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
+-          tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git?tag=v4.0.0#3492d620):
+-              kb
+-        EOS
+-
+-        expect(dumper.dump).to eql('cargo "tftio-kb", source: "ssh://git@example.com/tftio/kb.git?tag=v4.0.0"')
+-      end
+-
+-      it "dumps a crate installed from a local path without a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
+-          bat v0.24.0 (/Users/test/src/bat):
+-              bat
+-        EOS
+-
+-        expect(dumper.dump).to eql('cargo "bat"')
+-      end
+-
+-      it "dumps a crate installed from a file:// repository without a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
+-          bat v0.24.0 (file:///Users/test/src/bat#3492d620):
+-              bat
+-        EOS
+-
+-        expect(dumper.dump).to eql('cargo "bat"')
+-      end
+-
+-      it "ignores an origin it cannot classify as a source" do
+-        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
+-          ripgrep v13.0.0 (registry+sparse):
+-              rg
+-        EOS
++      test_each_hash({
++        "a git source with a resolved revision" => {
++          origin: "ssh://git@example.com/tool.git#3492d620",
++          source: "ssh://git@example.com/tool.git",
++          dump:   'cargo "example-tool", source: "ssh://git@example.com/tool.git"',
++        },
++        "an HTTPS git source"                   => {
++          origin: "https://github.com/example/tool#9f0e88bc",
++          source: "https://github.com/example/tool",
++          dump:   'cargo "example-tool", source: "https://github.com/example/tool"',
++        },
++        "a tag selector and resolved revision"  => {
++          origin: "ssh://git@example.com/tool.git?tag=v4.0.0#3492d620",
++          source: "ssh://git@example.com/tool.git?tag=v4.0.0",
++          dump:   'cargo "example-tool", source: "ssh://git@example.com/tool.git?tag=v4.0.0"',
++        },
++        "a local installation path"             => {
++          origin: "/Users/test/src/tool",
++          source: nil,
++          dump:   'cargo "example-tool"',
++        },
++        "a file:// repository"                  => {
++          origin: "file:///Users/test/src/tool#3492d620",
++          source: nil,
++          dump:   'cargo "example-tool"',
++        },
++        "an unrecognised origin"                => {
++          origin: "registry+sparse",
++          source: nil,
++          dump:   'cargo "example-tool"',
++        },
++      }) do |description, fixture|
++        context "with #{description}" do
++          before do
++            stub_cargo_list("example-tool v1.0.0 (#{fixture.fetch(:origin)}):\n    example-tool\n")
++          end
+ 
+-        expect(dumper.packages.first&.dig(:source)).to be_nil
+-        expect(dumper.dump).to eql('cargo "ripgrep"')
++          it "parses and dumps the package source" do
++            expect(packages: dumper.packages, dump: dumper.dump).to eq(
++              packages: [{ name: "example-tool", source: fixture.fetch(:source) }],
++              dump:     fixture.fetch(:dump),
++            )
++          end
++        end
        end
  
-       it "parses an https git source" do
--        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           ripgrep v13.0.0 (https://github.com/BurntSushi/ripgrep#9f0e88bc):
-               rg
-         EOS
-@@ -179,7 +190,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
-       end
- 
-       it "keeps a tag selector while stripping the resolved revision" do
--        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           tftio-kb v4.0.0 (ssh://git@example.com/tftio/kb.git?tag=v4.0.0#3492d620):
-               kb
-         EOS
-@@ -188,7 +199,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
-       end
- 
-       it "dumps a crate installed from a local path without a source" do
--        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           bat v0.24.0 (/Users/test/src/bat):
-               bat
-         EOS
-@@ -197,7 +208,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
-       end
- 
-       it "dumps a crate installed from a file:// repository without a source" do
--        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           bat v0.24.0 (file:///Users/test/src/bat#3492d620):
-               bat
-         EOS
-@@ -206,7 +217,7 @@ RSpec.describe Homebrew::Bundle::Cargo do
-       end
- 
-       it "ignores an origin it cannot classify as a source" do
--        allow(Utils).to receive(:popen_read_text).with(*cargo_list_args, err: :err).and_return(<<~EOS)
-+        stub_cargo_list(<<~EOS)
-           ripgrep v13.0.0 (registry+sparse):
-               rg
-         EOS
-@@ -218,7 +229,8 @@ RSpec.describe Homebrew::Bundle::Cargo do
        it "passes metacharacters in cargo's path literally" do
          cargo = Pathname("cargo; touch /tmp/pwned")
          allow(described_class).to receive(:package_manager_executable).and_return(cargo)
@@ -880,10 +929,10 @@ index 902d03f7f0..dd1644ac46 100644
          dumper.packages
        end
 diff --git a/Library/Homebrew/test/bundle/flatpak_spec.rb b/Library/Homebrew/test/bundle/flatpak_spec.rb
-index b431fc751b..82772d05fa 100644
+index b431fc751b..e72bb7812a 100644
 --- a/Library/Homebrew/test/bundle/flatpak_spec.rb
 +++ b/Library/Homebrew/test/bundle/flatpak_spec.rb
-@@ -3,9 +3,101 @@
+@@ -3,9 +3,108 @@
  
  require "bundle"
  require "bundle/dsl"
@@ -893,6 +942,13 @@ index b431fc751b..82772d05fa 100644
  RSpec.describe Homebrew::Bundle::Flatpak do
 +  let(:inventory_records) { ["Example.App"] }
 +  let(:inventory_output) { "Example.App\tflathub\n" }
++
++  describe "checked remote inventory" do
++    let(:inventory_output) { "flathub\thttps://example.com/repo/\n" }
++    let(:inventory_records) { { "flathub" => "https://example.com/repo/" } }
++
++    it_behaves_like "a checked inventory", :remote_urls, empty_inventory: {}
++  end
 +
 +  describe "remote row line endings" do
 +    before do
@@ -985,7 +1041,7 @@ index b431fc751b..82772d05fa 100644
    describe "cleanup" do
      test_each([false, nil]) do |result|
        it "continues after #{result.inspect} with the resolved executable and unchanged environment" do
-@@ -152,8 +244,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+@@ -152,8 +251,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
        end
  
        it "returns remote URLs" do
@@ -996,7 +1052,7 @@ index b431fc751b..82772d05fa 100644
            .and_return("flathub\thttps://dl.flathub.org/repo/\nfedora\thttps://registry.fedoraproject.org/\n")
          expect(dumper.remote_urls).to eql({
            "flathub" => "https://dl.flathub.org/repo/",
-@@ -162,11 +254,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+@@ -162,11 +261,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
        end
  
        it "returns package list with remotes and URLs" do
@@ -1012,7 +1068,7 @@ index b431fc751b..82772d05fa 100644
            .and_return("flathub\thttps://dl.flathub.org/repo/\n")
          expect(dumper.packages_with_remotes).to eql([
            { name: "com.spotify.Client", remote: "flathub", remote_url: "https://dl.flathub.org/repo/" },
-@@ -175,11 +267,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+@@ -175,11 +274,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
        end
  
        it "returns package names only" do
@@ -1028,7 +1084,7 @@ index b431fc751b..82772d05fa 100644
            .and_return("flathub\thttps://dl.flathub.org/repo/\n")
          expect(dumper.packages).to eql(["com.spotify.Client", "org.gnome.Calculator"])
        end
-@@ -248,11 +340,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+@@ -248,11 +347,11 @@ RSpec.describe Homebrew::Bundle::Flatpak do
        end
  
        it "handles packages without origin" do
@@ -1044,7 +1100,7 @@ index b431fc751b..82772d05fa 100644
            .and_return("flathub\thttps://dl.flathub.org/repo/\n")
          expect(dumper.packages_with_remotes).to eql([
            { name: "org.gnome.Calculator", remote: "flathub", remote_url: "https://dl.flathub.org/repo/" },
-@@ -389,8 +481,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
+@@ -389,8 +488,8 @@ RSpec.describe Homebrew::Bundle::Flatpak do
            end
  
            it "installs from .flatpakref directly" do
@@ -1056,7 +1112,7 @@ index b431fc751b..82772d05fa 100644
  
              expect(Homebrew::Bundle).to \
 diff --git a/Library/Homebrew/test/bundle/go_spec.rb b/Library/Homebrew/test/bundle/go_spec.rb
-index c0828dbb1d..f336fa0dde 100644
+index c0828dbb1d..b2bef7ab02 100644
 --- a/Library/Homebrew/test/bundle/go_spec.rb
 +++ b/Library/Homebrew/test/bundle/go_spec.rb
 @@ -3,9 +3,181 @@
@@ -1271,37 +1327,22 @@ index c0828dbb1d..f336fa0dde 100644
          expect(dumper.packages).to eql(["github.com/charmbracelet/crush"])
        end
  
-@@ -49,6 +226,29 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -49,6 +226,14 @@ RSpec.describe Homebrew::Bundle::Go do
      end
    end
  
 +  describe "bootstrap cache invalidation" do
 +    before do
-+      described_class.reset!
++      allow(described_class).to receive(:discovered_binaries).and_return({ "/tmp/tool" => "example.com/tool" })
 +    end
 +
-+    after do
-+      described_class.reset!
-+    end
-+
-+    it "rediscovers installed packages after bootstrapping the manager" do
-+      allow(described_class).to receive_messages(package_manager_executable: nil,
-+                                                 discovered_binaries:        { "/tmp/tool" => "example.com/tool" })
-+      described_class.installed_packages
-+      allow(Homebrew::Bundle).to receive(:system)
-+        .with(HOMEBREW_BREW_FILE, "install", "--formula", "go", verbose: false) do
-+          allow(described_class).to receive(:package_manager_executable).and_return(Pathname("go"))
-+          true
-+        end
-+
-+      expect(described_class.preinstall!("example.com/tool")).to be(false)
-+    end
++    it_behaves_like "an inventory refreshed after bootstrap", "example.com/tool"
 +  end
 +
    describe "installing" do
      context "when Go is not installed" do
        before do
-@@ -158,15 +358,20 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -158,15 +343,20 @@ RSpec.describe Homebrew::Bundle::Go do
        binary = "/Users/test/go/bin/cr;ush $(touch pwned)"
        allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
        allow(described_class).to receive(:puts)
@@ -1329,7 +1370,7 @@ index c0828dbb1d..f336fa0dde 100644
  
        expect(File).to receive(:unlink).with(binary)
  
-@@ -178,19 +383,23 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -178,19 +368,23 @@ RSpec.describe Homebrew::Bundle::Go do
  
        before do
          Homebrew.failed = false
@@ -1363,7 +1404,7 @@ index c0828dbb1d..f336fa0dde 100644
          end
        end
 diff --git a/Library/Homebrew/test/bundle/krew_spec.rb b/Library/Homebrew/test/bundle/krew_spec.rb
-index 766b4638db..252feb664c 100644
+index 766b4638db..932631fa2f 100644
 --- a/Library/Homebrew/test/bundle/krew_spec.rb
 +++ b/Library/Homebrew/test/bundle/krew_spec.rb
 @@ -4,8 +4,63 @@
@@ -1451,37 +1492,22 @@ index 766b4638db..252feb664c 100644
  
          expect(dumper.packages).to be_empty
        end
-@@ -49,6 +104,29 @@ RSpec.describe Homebrew::Bundle::Krew do
+@@ -49,6 +104,14 @@ RSpec.describe Homebrew::Bundle::Krew do
      end
    end
  
 +  describe "bootstrap cache invalidation" do
 +    before do
-+      described_class.reset!
-+    end
-+
-+    after do
-+      described_class.reset!
-+    end
-+
-+    it "rediscovers installed packages after bootstrapping the manager" do
-+      allow(described_class).to receive(:package_manager_executable).and_return(nil)
-+      described_class.installed_packages
 +      allow(described_class).to receive(:command_output).with(Pathname("krew"), args: ["list"]).and_return("ctx\n")
-+      allow(Homebrew::Bundle).to receive(:system)
-+        .with(HOMEBREW_BREW_FILE, "install", "--formula", "krew", verbose: false) do
-+          allow(described_class).to receive(:package_manager_executable).and_return(Pathname("krew"))
-+          true
-+        end
-+
-+      expect(described_class.preinstall!("ctx")).to be(false)
 +    end
++
++    it_behaves_like "an inventory refreshed after bootstrap", "ctx"
 +  end
 +
    describe "installing" do
      context "when kubectl-krew is not found" do
        before do
-@@ -101,6 +179,7 @@ RSpec.describe Homebrew::Bundle::Krew do
+@@ -101,6 +164,7 @@ RSpec.describe Homebrew::Bundle::Krew do
              package_manager_executable: Pathname.new("/usr/local/bin/kubectl-krew"),
              package_manager_installed?: true,
              installed_packages:         [],
@@ -1637,10 +1663,10 @@ index 8fc17d327c..8f790f770b 100644
  
          it "installs app" do
 diff --git a/Library/Homebrew/test/bundle/npm_spec.rb b/Library/Homebrew/test/bundle/npm_spec.rb
-index 30c9c5d995..5ad58f5775 100644
+index 30c9c5d995..d05b504e46 100644
 --- a/Library/Homebrew/test/bundle/npm_spec.rb
 +++ b/Library/Homebrew/test/bundle/npm_spec.rb
-@@ -3,11 +3,92 @@
+@@ -3,11 +3,98 @@
  
  require "bundle"
  require "bundle/dsl"
@@ -1655,6 +1681,12 @@ index 30c9c5d995..5ad58f5775 100644
 +
 +  it_behaves_like "a checked package inventory", empty_output: "{}"
 +  it_behaves_like "a checked inventory", :installed_packages, empty_output: "{}"
++
++  describe "checked outdated inventory" do
++    let(:inventory_output) { '{"example-tool":{"wanted":"1","latest":"2"}}' }
++
++    it_behaves_like "a checked inventory", :outdated_packages, empty_output: "{}"
++  end
 +
 +  describe "checked JSON inventory" do
 +    let(:npm) { mktmpdir/"npm" }
@@ -1733,7 +1765,7 @@ index 30c9c5d995..5ad58f5775 100644
    describe "dumping" do
      subject(:dumper) { described_class }
  
-@@ -24,15 +105,13 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -24,15 +111,13 @@ RSpec.describe Homebrew::Bundle::Npm do
      end
  
      context "when npm is installed" do
@@ -1750,7 +1782,7 @@ index 30c9c5d995..5ad58f5775 100644
            {
              "dependencies": {
                "npm": { "version": "11.11.0" },
-@@ -51,17 +130,17 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -51,17 +136,17 @@ RSpec.describe Homebrew::Bundle::Npm do
          npm.write("")
  
          allow(described_class).to receive(:package_manager_executable).and_return(npm)
@@ -1772,7 +1804,7 @@ index 30c9c5d995..5ad58f5775 100644
            {
              "dependencies": {
                "npm": { "version": "11.11.0" }
-@@ -73,15 +152,15 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -73,15 +158,15 @@ RSpec.describe Homebrew::Bundle::Npm do
        end
  
        it "handles invalid JSON" do
@@ -1792,7 +1824,7 @@ index 30c9c5d995..5ad58f5775 100644
        end
  
        it "dumps package list" do
-@@ -98,29 +177,30 @@ RSpec.describe Homebrew::Bundle::Npm do
+@@ -98,43 +183,33 @@ RSpec.describe Homebrew::Bundle::Npm do
      end
  
      it "lists outdated packages, including scoped packages, but excludes npm" do
@@ -1828,16 +1860,15 @@ index 30c9c5d995..5ad58f5775 100644
        described_class.outdated_packages
      end
  
-     it "caches outdated packages until reset" do
+-    it "caches outdated packages until reset" do
 -      expect(Utils).to receive(:popen_read_text).twice.and_return("{}")
-+      expect(SystemCommand).to receive(:run).twice.and_return(stub_npm_output("{}"))
- 
-       described_class.outdated_packages
-       described_class.outdated_packages
-@@ -128,13 +208,11 @@ RSpec.describe Homebrew::Bundle::Npm do
-       described_class.outdated_packages
-     end
- 
+-
+-      described_class.outdated_packages
+-      described_class.outdated_packages
+-      described_class.reset!
+-      described_class.outdated_packages
+-    end
+-
 -    it "handles empty or invalid output" do
 -      expect(["", "not json", "{}"].map do |output|
 -        described_class.reset!
@@ -2284,16 +2315,17 @@ index 0f5232cd35..55ca948041 100644
  ```console
 diff --git a/Library/Homebrew/test/bundle/shared_examples/inventory.rb b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
 new file mode 100644
-index 0000000000..1822fe8c69
+index 0000000000..02facbca07
 --- /dev/null
 +++ b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,167 @@
 +# typed: true
 +# frozen_string_literal: true
 +
 +require "bundle/dumper"
 +
-+RSpec.shared_examples "a checked inventory" do |inventory_method = nil, empty_output: "", stderr_forwarded: false|
++RSpec.shared_examples "a checked inventory" do |inventory_method = nil, empty_output: "", empty_inventory: [],
++                                               stderr_forwarded: false|
 +  let(:inventory_output) { super() }
 +  let(:inventory_records) { super() }
 +
@@ -2356,7 +2388,7 @@ index 0000000000..1822fe8c69
 +    described_class.public_send(inventory_method)
 +    write_inventory(status: 2)
 +
-+    expect(described_class.public_send(inventory_method)).to eq([])
++    expect(described_class.public_send(inventory_method)).to eq(empty_inventory)
 +  end
 +
 +  it "queries again after reset" do
@@ -2364,7 +2396,7 @@ index 0000000000..1822fe8c69
 +    write_inventory(output: empty_output)
 +    described_class.reset!
 +
-+    expect(described_class.public_send(inventory_method)).to eq([])
++    expect(described_class.public_send(inventory_method)).to eq(empty_inventory)
 +  end
 +
 +  it "rejects failed partial inventory with diagnostics" do
@@ -2376,6 +2408,29 @@ index 0000000000..1822fe8c69
 +  it "rejects termination by signal" do
 +    inventory_executable.write "#!/bin/sh\nkill -TERM $$\n"
 +    expect { described_class.public_send(inventory_method) }.to raise_error(ErrorDuringExecution)
++  end
++end
++
++RSpec.shared_examples "an inventory refreshed after bootstrap" do |package = nil|
++  before do
++    described_class.reset!
++  end
++
++  after do
++    described_class.reset!
++  end
++
++  it "rediscovers installed packages after bootstrapping the manager" do
++    allow(described_class).to receive(:package_manager_executable).and_return(nil)
++    described_class.installed_packages
++    allow(Homebrew::Bundle).to receive(:system)
++      .with(HOMEBREW_BREW_FILE, "install", "--formula", described_class.package_manager_name, verbose: false) do
++        allow(described_class).to receive(:package_manager_executable)
++          .and_return(Pathname(described_class.package_manager_name))
++        true
++      end
++
++    expect(described_class.preinstall!(package)).to be(false)
 +  end
 +end
 +
