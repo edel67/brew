@@ -56,7 +56,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/krew_spec.rb",
-      "sha256": "bb63b2b97f6bd6d0088d277fbb4bc6997d5b53dc869232b29ab971618e098de0"
+      "sha256": "615f1c9d39a67a5d81adf8761ab6cf859d8985cfc8f22c1aebd417c6e0d1b732"
     },
     {
       "path": "Library/Homebrew/test/bundle/mac_app_store_spec.rb",
@@ -80,7 +80,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/winget_native_spec.rb",
-      "sha256": "577614eea94a43393539119d9fc281b7447cabef8037ac679e902ce5cfbdd34a"
+      "sha256": "0fe3c177d0f900ff4f891f4a75ee62cf90f3e37460f394fc78c7ad672948cf0f"
     },
     {
       "path": "Library/Homebrew/test/bundle/winget_spec.rb",
@@ -95,6 +95,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "f1c965daf6823a08d028963d91383541ce79bc1349094d8a930c12e51d59d027",
-  "candidate_sha256": "f1c965daf6823a08d028963d91383541ce79bc1349094d8a930c12e51d59d027"
+  "sha256": "eeb15b908c522d5282fac9cfcaecd4ae7f3e6a0eb3c4b7a425a126440871e76f",
+  "candidate_sha256": "eeb15b908c522d5282fac9cfcaecd4ae7f3e6a0eb3c4b7a425a126440871e76f"
 }
