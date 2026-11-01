@@ -557,7 +557,7 @@ index f4b7c286ba..b1cdc7d699 100644
            return [] if @extensions.nil?
  
 diff --git a/Library/Homebrew/bundle/extensions/winget.rb b/Library/Homebrew/bundle/extensions/winget.rb
-index 0a0b1ffd19..d71fc1d9ef 100644
+index 0a0b1ffd19..640498f08d 100644
 --- a/Library/Homebrew/bundle/extensions/winget.rb
 +++ b/Library/Homebrew/bundle/extensions/winget.rb
 @@ -44,6 +44,9 @@ module Homebrew
@@ -706,7 +706,7 @@ index 0a0b1ffd19..d71fc1d9ef 100644
 +              exit 1
 +            }
 +
-+            $nativeCode = [long]$nativeStatus -band 4294967295L
++            $nativeCode = [long]$nativeStatus -band [uint32]::MaxValue
 +            if ($nativeCode -eq 0) { exit 0 }
 +          POWERSHELL
 +
@@ -1112,7 +1112,7 @@ index b431fc751b..e72bb7812a 100644
  
              expect(Homebrew::Bundle).to \
 diff --git a/Library/Homebrew/test/bundle/go_spec.rb b/Library/Homebrew/test/bundle/go_spec.rb
-index c0828dbb1d..b2bef7ab02 100644
+index c0828dbb1d..08fc17ec15 100644
 --- a/Library/Homebrew/test/bundle/go_spec.rb
 +++ b/Library/Homebrew/test/bundle/go_spec.rb
 @@ -3,9 +3,181 @@
@@ -1327,11 +1327,13 @@ index c0828dbb1d..b2bef7ab02 100644
          expect(dumper.packages).to eql(["github.com/charmbracelet/crush"])
        end
  
-@@ -49,6 +226,14 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -49,6 +226,16 @@ RSpec.describe Homebrew::Bundle::Go do
      end
    end
  
 +  describe "bootstrap cache invalidation" do
++    let(:bootstrap_executable) { Pathname("go") }
++
 +    before do
 +      allow(described_class).to receive(:discovered_binaries).and_return({ "/tmp/tool" => "example.com/tool" })
 +    end
@@ -1342,7 +1344,7 @@ index c0828dbb1d..b2bef7ab02 100644
    describe "installing" do
      context "when Go is not installed" do
        before do
-@@ -158,15 +343,20 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -158,15 +345,20 @@ RSpec.describe Homebrew::Bundle::Go do
        binary = "/Users/test/go/bin/cr;ush $(touch pwned)"
        allow(described_class).to receive(:`).and_raise("Shell execution is not permitted")
        allow(described_class).to receive(:puts)
@@ -1370,7 +1372,7 @@ index c0828dbb1d..b2bef7ab02 100644
  
        expect(File).to receive(:unlink).with(binary)
  
-@@ -178,19 +368,23 @@ RSpec.describe Homebrew::Bundle::Go do
+@@ -178,19 +370,23 @@ RSpec.describe Homebrew::Bundle::Go do
  
        before do
          Homebrew.failed = false
@@ -1404,7 +1406,7 @@ index c0828dbb1d..b2bef7ab02 100644
          end
        end
 diff --git a/Library/Homebrew/test/bundle/krew_spec.rb b/Library/Homebrew/test/bundle/krew_spec.rb
-index 766b4638db..932631fa2f 100644
+index 766b4638db..5c629d94d5 100644
 --- a/Library/Homebrew/test/bundle/krew_spec.rb
 +++ b/Library/Homebrew/test/bundle/krew_spec.rb
 @@ -4,8 +4,63 @@
@@ -1492,13 +1494,16 @@ index 766b4638db..932631fa2f 100644
  
          expect(dumper.packages).to be_empty
        end
-@@ -49,6 +104,14 @@ RSpec.describe Homebrew::Bundle::Krew do
+@@ -49,6 +104,17 @@ RSpec.describe Homebrew::Bundle::Krew do
      end
    end
  
 +  describe "bootstrap cache invalidation" do
++    let(:bootstrap_executable) { Pathname("kubectl-krew") }
++
 +    before do
-+      allow(described_class).to receive(:command_output).with(Pathname("krew"), args: ["list"]).and_return("ctx\n")
++      allow(described_class).to receive(:command_output).with(bootstrap_executable, args: ["list"])
++                                                      .and_return("ctx\n")
 +    end
 +
 +    it_behaves_like "an inventory refreshed after bootstrap", "ctx"
@@ -1507,7 +1512,7 @@ index 766b4638db..932631fa2f 100644
    describe "installing" do
      context "when kubectl-krew is not found" do
        before do
-@@ -101,6 +164,7 @@ RSpec.describe Homebrew::Bundle::Krew do
+@@ -101,6 +167,7 @@ RSpec.describe Homebrew::Bundle::Krew do
              package_manager_executable: Pathname.new("/usr/local/bin/kubectl-krew"),
              package_manager_installed?: true,
              installed_packages:         [],
@@ -2114,10 +2119,10 @@ index e3ee45468d..c6589557f3 100644
  
          expect(dumper.extensions).to eql(["github.codespaces"])
 diff --git a/Library/Homebrew/test/bundle/winget_spec.rb b/Library/Homebrew/test/bundle/winget_spec.rb
-index 545a123352..653b39614c 100644
+index 545a123352..b4bee17acb 100644
 --- a/Library/Homebrew/test/bundle/winget_spec.rb
 +++ b/Library/Homebrew/test/bundle/winget_spec.rb
-@@ -3,10 +3,149 @@
+@@ -3,10 +3,150 @@
  
  require "bundle"
  require "bundle/dsl"
@@ -2130,6 +2135,7 @@ index 545a123352..653b39614c 100644
 +    let(:powershell) { mktmpdir/"powershell.exe" }
 +    let(:export_file) { mktmpdir/"export.json" }
 +    let(:inventory_output) { '{"Sources":[{"Packages":[{"PackageIdentifier":"Example.App"}]}]}' }
++    let(:inventory_records) { Array.new(Homebrew::Bundle::Winget::SOURCES.length, "Example.App") }
 +
 +    def write_inventory(output: "", status: 0)
 +      powershell.write <<~SH
@@ -2164,7 +2170,7 @@ index 545a123352..653b39614c 100644
 +      write_inventory(output: inventory_output, status: 1)
 +      expect { described_class.apps }.to raise_error(ErrorDuringExecution)
 +      write_inventory(output: inventory_output)
-+      expect(described_class.apps.map(&:id)).to eq(["Example.App", "Example.App"])
++      expect(described_class.apps.map(&:id)).to eq(inventory_records)
 +    end
 +
 +    test_each_hash({ "missing" => Errno::ENOENT, "malformed" => RuntimeError }) do |export, error|
@@ -2177,7 +2183,7 @@ index 545a123352..653b39614c 100644
 +
 +        expect { described_class.apps }.to raise_error(error)
 +        write_inventory(output: inventory_output)
-+        expect(described_class.apps.map(&:id)).to eq(["Example.App", "Example.App"])
++        expect(described_class.apps.map(&:id)).to eq(inventory_records)
 +      end
 +    end
 +
@@ -2267,7 +2273,7 @@ index 545a123352..653b39614c 100644
    describe "checking" do
      let(:entry) do
        Homebrew::Bundle::Dsl::Entry.new(:winget, "PowerToys", id: "XP89DCGQ3K6VLD", source: "msstore")
-@@ -111,9 +250,12 @@ RSpec.describe Homebrew::Bundle::Winget do
+@@ -111,9 +251,12 @@ RSpec.describe Homebrew::Bundle::Winget do
            Homebrew::Bundle::Winget::App.new(id: "Valve.Steam", name: "Valve.Steam", source: "winget"),
            Homebrew::Bundle::Winget::App.new(id: "Unknown.Package", name: "Unknown.Package", source: "winget"),
          ])
@@ -2283,7 +2289,7 @@ index 545a123352..653b39614c 100644
            .and_return(<<~EOS)
              Name                                       Id                                          Version
              -----------------------------------------------------------------------------------------------
-@@ -194,7 +336,7 @@ RSpec.describe Homebrew::Bundle::Winget do
+@@ -194,7 +337,7 @@ RSpec.describe Homebrew::Bundle::Winget do
  
      context "when app is not installed" do
        before do
@@ -2315,10 +2321,10 @@ index 0f5232cd35..55ca948041 100644
  ```console
 diff --git a/Library/Homebrew/test/bundle/shared_examples/inventory.rb b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
 new file mode 100644
-index 0000000000..02facbca07
+index 0000000000..75f360e826
 --- /dev/null
 +++ b/Library/Homebrew/test/bundle/shared_examples/inventory.rb
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,169 @@
 +# typed: true
 +# frozen_string_literal: true
 +
@@ -2412,6 +2418,8 @@ index 0000000000..02facbca07
 +end
 +
 +RSpec.shared_examples "an inventory refreshed after bootstrap" do |package = nil|
++  let(:bootstrap_executable) { super() }
++
 +  before do
 +    described_class.reset!
 +  end
@@ -2426,7 +2434,7 @@ index 0000000000..02facbca07
 +    allow(Homebrew::Bundle).to receive(:system)
 +      .with(HOMEBREW_BREW_FILE, "install", "--formula", described_class.package_manager_name, verbose: false) do
 +        allow(described_class).to receive(:package_manager_executable)
-+          .and_return(Pathname(described_class.package_manager_name))
++          .and_return(bootstrap_executable)
 +        true
 +      end
 +
@@ -2488,10 +2496,10 @@ index 0000000000..02facbca07
 +end
 diff --git a/Library/Homebrew/test/bundle/winget_native_spec.rb b/Library/Homebrew/test/bundle/winget_native_spec.rb
 new file mode 100644
-index 0000000000..ad9ea95d56
+index 0000000000..66812f3721
 --- /dev/null
 +++ b/Library/Homebrew/test/bundle/winget_native_spec.rb
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,110 @@
 +# typed: true
 +# frozen_string_literal: true
 +
@@ -2501,7 +2509,11 @@ index 0000000000..ad9ea95d56
 +RSpec.describe Homebrew::Bundle::Winget do
 +  let(:native_directory) { mktmpdir("winget") }
 +  let(:executable) { native_directory/"fixture.exe" }
-+  let(:powershell) { Pathname("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe") }
++  let(:powershell) do
++    which("powershell.exe", ORIGINAL_PATHS) ||
++      Pathname("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
++  end
++  let(:no_applications_status) { "8A150014" }
 +
 +  def windows_path(path)
 +    Utils.safe_popen_read("wslpath", "-w", path.to_s).chomp
@@ -2528,13 +2540,13 @@ index 0000000000..ad9ea95d56
 +    described_class.reset!
 +  end
 +
-+  it "reads both sources through native execution with Unicode names" do
++  it "reads all configured sources through native execution with Unicode names" do
 +    expect(described_class.apps.map { |app| [app.name, app.source] })
-+      .to eq([["Example café", "winget"], ["Example café", "msstore"]])
++      .to eq(Homebrew::Bundle::Winget::SOURCES.map { |source| ["Example café", source] })
 +  end
 +
-+  test_each(["80070000", "DEAD0014"]) do |status|
-+    it "rejects native failure 0x#{status} without truncating its status" do
++  test_each_hash({ "80070000" => "zero low byte", "DEAD0014" => "same low byte as no applications" }) do |status, reason|
++    it "rejects native failure 0x#{status} (#{reason}) without truncating its status" do
 +      (native_directory/"exit-code.txt").write status
 +
 +      expect { described_class.apps }
@@ -2543,20 +2555,20 @@ index 0000000000..ad9ea95d56
 +  end
 +
 +  it "accepts the exact no-applications status for export" do
-+    (native_directory/"exit-code.txt").write "8A150014"
++    (native_directory/"exit-code.txt").write no_applications_status
 +
 +    expect(described_class.apps).to eq([])
 +  end
 +
 +  it "rejects the no-applications status for list" do
-+    (native_directory/"exit-code.txt").write "8A150014"
++    (native_directory/"exit-code.txt").write no_applications_status
 +
 +    expect { described_class.listed_app_names(executable, source: "winget") }
-+      .to raise_error(ErrorDuringExecution, /0x8A150014/)
++      .to raise_error(ErrorDuringExecution, /0x#{no_applications_status}/)
 +  end
 +
 +  it "propagates failure to write the canonical empty export" do
-+    (native_directory/"exit-code.txt").write "8A150014"
++    (native_directory/"exit-code.txt").write no_applications_status
 +    allow(Tempfile).to receive(:create).with(["brew-bundle-winget", ".json"])
 +                                       .and_yield(instance_double(File,
 +                                                                  path: (native_directory/"absent/export.json").to_s))
@@ -2584,7 +2596,7 @@ index 0000000000..ad9ea95d56
 +      end
 +
 +      it "writes the canonical empty export as BOM-free UTF-8" do
-+        (quoted_directory/"exit-code.txt").write "8A150014"
++        (quoted_directory/"exit-code.txt").write no_applications_status
 +        allow(Tempfile).to receive(:create).and_wrap_original do |original, basename, &block|
 +          original.call(basename, quoted_directory) do |file|
 +            apps = block.call(file)

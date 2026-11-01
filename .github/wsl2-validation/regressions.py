@@ -32,7 +32,8 @@ def run(name, description=None, failures=0, examples=None):
 
 if mode == 'native':
     mutations = [
-        ('status-width', '$nativeCode = [long]$nativeStatus -band 4294967295L', '$nativeCode = [long]$nativeStatus -band 255', 'rejects native failure 0x', 2),
+        ('status-width', '$nativeCode = [long]$nativeStatus -band [uint32]::MaxValue', '$nativeCode = [long]$nativeStatus -band 255', 'rejects native failure 0x', 2),
+        ('source-iteration', 'SOURCES.flat_map do |source|', 'SOURCES.first(1).flat_map do |source|', 'reads all configured sources through native execution', 1),
         ('status-collision', 'if ($nativeCode -eq #{NO_APPLICATIONS_FOUND}) {', 'if (($nativeCode -band 255) -eq (#{NO_APPLICATIONS_FOUND} -band 255)) {', 'rejects native failure 0x', 1),
         ('empty-status-scope', 'if ($nativeCode -eq 0) { exit 0 }', 'if ($nativeCode -eq 0 -or $nativeCode -eq #{NO_APPLICATIONS_FOUND}) { exit 0 }', 'rejects the no-applications status for list', 1),
         ('literal-quotes', r"value.gsub(/['\u2018-\u201B]/) { |quote| quote * 2 }", 'value.gsub("\'", "\'\'")', 'preserves literal arguments through native export and list', 4),

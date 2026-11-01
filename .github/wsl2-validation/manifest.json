@@ -1,5 +1,5 @@
 {
-  "candidate": "EX-I31",
+  "candidate": "EX-I32",
   "base": "a59d9fc5f8361dccde817ce1c066fdf365c8df3e",
   "files": [
     {
@@ -40,7 +40,7 @@
     },
     {
       "path": "Library/Homebrew/bundle/extensions/winget.rb",
-      "sha256": "1a5e1c9644d05dc12c6969f19be6064b225dce694f70ab7a80de98f2f170dea2"
+      "sha256": "78c9b773c0c75a92b78c6c10853ebe42403b0f6649c9f668ad1afd14866f989a"
     },
     {
       "path": "Library/Homebrew/test/bundle/cargo_spec.rb",
@@ -52,11 +52,11 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/go_spec.rb",
-      "sha256": "0d94fd04557843018d874095d0ed61b9eabe8b070e6b28d334731c2eb32089da"
+      "sha256": "664eae4f7b4ea434241be1be015312577f9909a21bcca299d7a4904998b70c96"
     },
     {
       "path": "Library/Homebrew/test/bundle/krew_spec.rb",
-      "sha256": "29e2678ca3805b0f0ae343e6ad1a169972a80f1e889f930871a21c3dd20520fe"
+      "sha256": "bb63b2b97f6bd6d0088d277fbb4bc6997d5b53dc869232b29ab971618e098de0"
     },
     {
       "path": "Library/Homebrew/test/bundle/mac_app_store_spec.rb",
@@ -68,7 +68,7 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/shared_examples/inventory.rb",
-      "sha256": "f1454de5dcf1860f054ceff5c464190253e84608ea23b0879ea69ecd8b872b38"
+      "sha256": "0ac43320bf6a59e4fbe847a9f9e72b292d8b04f1090cfe75610109b3cc81c4bb"
     },
     {
       "path": "Library/Homebrew/test/bundle/uv_spec.rb",
@@ -80,11 +80,11 @@
     },
     {
       "path": "Library/Homebrew/test/bundle/winget_native_spec.rb",
-      "sha256": "5a90c0cb08c0f260944147e52803c528976c60335d7b9e035389a9a137d6a1c9"
+      "sha256": "577614eea94a43393539119d9fc281b7447cabef8037ac679e902ce5cfbdd34a"
     },
     {
       "path": "Library/Homebrew/test/bundle/winget_spec.rb",
-      "sha256": "28a365ec6008cb49648739c0eec14bd81b6769ff13ba522f040cd0054014e0fd"
+      "sha256": "f07c95d1e36cbddbfe94ad8fd267d4413cc927414390e9a37ced0fac4d3c986d"
     },
     {
       "path": "Library/Homebrew/test/support/fixtures/winget.cs",
@@ -95,6 +95,6 @@
       "sha256": "8637f0bf1c3c59fc3571301a643883a61c117b531b72721270f1e86a605439b9"
     }
   ],
-  "sha256": "2c0655e9e895f92673a5ae4aa386cef29cfe80cd6b179d36aac072f7418f5ff3",
-  "candidate_sha256": "2c0655e9e895f92673a5ae4aa386cef29cfe80cd6b179d36aac072f7418f5ff3"
+  "sha256": "f1c965daf6823a08d028963d91383541ce79bc1349094d8a930c12e51d59d027",
+  "candidate_sha256": "f1c965daf6823a08d028963d91383541ce79bc1349094d8a930c12e51d59d027"
 }
